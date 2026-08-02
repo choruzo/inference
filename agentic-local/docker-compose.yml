@@ -1,0 +1,40 @@
+services:
+  llm:
+    profiles:
+      - container-llm
+    build:
+      context: ..
+      dockerfile: agentic-local/Dockerfile.llm
+    command:
+      - --model
+      - /models/LFM2.5-1.2B-Thinking-Q4_K_M.gguf
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "4096"
+      - --threads
+      - "8"
+      - --n-gpu-layers
+      - "99"
+    volumes:
+      - ../model:/models:ro
+    ports:
+      - "8080:8080"
+
+  app:
+    build:
+      context: .
+    environment:
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8080/v1}
+      LLM_MODEL: local-gguf
+      AGENT_WORKSPACE: /workspace
+      MAX_AGENT_STEPS: "8"
+      MAX_RESPONSE_TOKENS: "512"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./workspace:/workspace
+    ports:
+      - "8000:8000"

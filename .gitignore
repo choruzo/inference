@@ -1,0 +1,13 @@
+llama.cpp
+venv/*
+agentic-local/backend/__pycache__/__init__.cpython-312.pyc
+agentic-local/backend/__pycache__/config.cpython-312.pyc
+agentic-local/backend/tools/__init__.py
+agentic-local/backend/tools/__pycache__/base.cpython-312.pyc
+agentic-local/backend/tools/__pycache__/filesystem.cpython-312.pyc
+agentic-local/logs/llama-server-q4.log
+model/
+agentic-local/backend/__pycache__/main.cpython-312.pyc
+agentic-local/backend/__pycache__/agent.cpython-312.pyc
+agentic-local/backend/__init__.py
+agentic-local/backend/tools/__pycache__/__init__.cpython-312.pyc

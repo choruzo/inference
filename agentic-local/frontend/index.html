@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agente local</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div>
+          <h1>Agente local</h1>
+          <p class="muted">Modelo GGUF, herramientas de archivos y workspace aislado.</p>
+        </div>
+        <section>
+          <h2>Herramientas</h2>
+          <ul>
+            <li>list_dir</li>
+            <li>glob</li>
+            <li>find</li>
+            <li>read_file</li>
+            <li>write_file</li>
+            <li>edit_file</li>
+            <li>file_info</li>
+          </ul>
+        </section>
+        <section>
+          <h2>Estado</h2>
+          <div id="status" class="status">Conectando...</div>
+        </section>
+      </aside>
+
+      <section class="panel">
+        <div id="messages" class="messages"></div>
+        <form id="chat-form" class="composer">
+          <textarea id="prompt" rows="3" placeholder="Pide algo al agente local..."></textarea>
+          <button id="send" type="submit">Enviar</button>
+        </form>
+      </section>
+    </main>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="role"></div>
+        <div class="content"></div>
+      </article>
+    </template>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
