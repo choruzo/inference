@@ -10,6 +10,35 @@ Convertir el agente actual en un asistente local con tres modos de trabajo:
 
 Los modos deben poder activarse o desactivarse desde el cuadro de chat usando un boton con simbolo `+`, que abre controles compactos. La interfaz tambien debe mostrar una ventana colapsable con tokens o texto de razonamiento/traza cuando el backend lo exponga.
 
+## Estado de Implementacion
+
+Actualizado el 2 de agosto de 2026.
+
+Las fases 0 a 9 estan implementadas y operativas. Las fases 10 a 12 permanecen planificadas y fuera del alcance de esta entrega.
+
+| Fase | Estado | Evidencia principal |
+| --- | --- | --- |
+| 0. Contratos y preparacion | Completada | `backend/contracts.py`, `backend/modes.py`, feature flags y directorios configurables |
+| 1. UI y traza | Completada | Selector `+`, modos persistentes, chips, citas y panel copiable en `frontend/` |
+| 2. Ingesta textual | Completada | Chunking estructural e indexado incremental en `backend/rag/` |
+| 3. SQLite y FTS5 | Completada | Migraciones versionadas, tablas auditables y endpoints de estado/reindexado |
+| 4. Retrieval y citas | Completada | FTS5, contexto acotado, validacion de citas y rechazo sin evidencia |
+| 5. Embeddings | Completada | BGE Small Q8_0, endpoint llama.cpp de 384 dimensiones e invalidacion por modelo |
+| 6. Busqueda hibrida | Completada | Vector + FTS, RRF, filtros, diversidad, presupuesto y top-k adaptativo |
+| 7. Reranking | Completada | JSON Schema estricto, cache versionada y guardrail de evidencia lexical/vectorial |
+| 8. Evaluacion | Completada | Golden set, 17 tests y metricas reproducibles en `backend/rag/evaluate.py` |
+| 9. Documentos y OCR | Completada | PDF/DOCX a Markdown, RapidOCR offline, cache con bounding boxes y orquestacion secuencial |
+
+Validacion final:
+
+- `pytest`: 17 tests superados.
+- Golden set: `hit@k=1.0`, `top_source_accuracy=1.0`, `citation_accuracy=1.0` y `answer_groundedness=1.0`.
+- Pruebas E2E con modelo real: Chat puro, RAG citado, rechazo sin evidencia y reranking protegido.
+- Pruebas reales de PDF digital, PDF escaneado, OCR cacheado y ausencia de worker OCR residente tras la ingesta.
+- Modelo `bge-small-en-v1.5-Q8_0.gguf` verificado con SHA-256 `cb23bbfa9bc2f2e2adf32fee567cc72bed2a4250bed09a42dc12bac81dc58bef`.
+
+Los comandos de operacion, variables y decisiones sobre Docling/GOT-OCR estan documentados en `README.md`.
+
 ## Principios RAG
 
 - No meter documentos completos en contexto salvo casos pequenos y controlados.

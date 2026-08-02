@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="${APP_DIR}/logs/llama-server.pid"
+EMBEDDINGS_PID_FILE="${APP_DIR}/logs/embeddings-server.pid"
 
 docker_compose_stop_app() {
   if docker compose version >/dev/null 2>&1 && docker ps >/dev/null 2>&1; then
@@ -33,6 +34,12 @@ if [[ -f "${PID_FILE}" ]]; then
     echo "llama-server parado: ${PID}"
   fi
   rm -f "${PID_FILE}"
+fi
+
+if [[ -f "${EMBEDDINGS_PID_FILE}" ]]; then
+  EMBEDDINGS_PID="$(cat "${EMBEDDINGS_PID_FILE}")"
+  kill "${EMBEDDINGS_PID}" >/dev/null 2>&1 || true
+  rm -f "${EMBEDDINGS_PID_FILE}"
 fi
 
 echo "app parada"

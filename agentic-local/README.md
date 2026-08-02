@@ -1,6 +1,6 @@
 # Agentic Local
 
-App local ampliable para usar un modelo GGUF servido por `llama.cpp` como agente con herramientas basicas de filesystem.
+Asistente local con chat GGUF, herramientas de filesystem y RAG sobre documentacion del workspace.
 Por defecto el modelo se arranca fuera de Docker con `../llama.cpp/build-vulkan/bin/llama-server`, para que pueda aprovechar mejor la GPU/Vulkan del host.
 El modelo por defecto es `../model/LFM2.5-1.2B-Thinking-Q4_K_M.gguf`.
 
@@ -10,6 +10,17 @@ El modelo por defecto es `../model/LFM2.5-1.2B-Thinking-Q4_K_M.gguf`.
 cd agentic-local
 ./start-host-gpu.sh
 ```
+
+Para RAG semantico, descarga y arranca el modelo de embeddings CPU antes de la app:
+
+```bash
+./download-rag-models.sh
+./start-embeddings.sh
+```
+
+El worker OCR CPU se instala por separado con `../venv/bin/pip install -r backend/requirements-ocr.txt`. Para descargar tambien GOT-OCR2_0 como opcion avanzada: `DOWNLOAD_OCR_MODEL=1 ./download-rag-models.sh`.
+
+El endpoint de embeddings usa `http://localhost:8091/v1` porque `8081` esta ocupado en este host. Puede cambiarse con `EMBEDDINGS_PORT` y `EMBEDDINGS_BASE_URL`.
 
 Si Docker en tu usuario pide permisos, ejecuta una vez `sudo -v` antes del script o lanza el script desde una terminal interactiva para que pueda pedir la contraseña.
 
@@ -50,6 +61,51 @@ El agente solo puede leer y escribir dentro de `agentic-local/workspace`, que se
 - `write_file`: crea o reemplaza archivos.
 - `edit_file`: reemplaza texto exacto en un archivo.
 - `file_info`: devuelve metadatos basicos.
+- `rag_status`: muestra el estado durable del indice.
+- `rag_reindex`: reindexa incrementalmente `workspace/docs`.
+- `rag_search`: ejecuta retrieval hibrido local.
+
+## RAG
+
+Coloca Markdown, texto o codigo en `workspace/docs` y ejecuta:
+
+```bash
+../venv/bin/python -m backend.rag.cli reindex
+EMBEDDINGS_BASE_URL=http://127.0.0.1:8091/v1 ../venv/bin/python -m backend.rag.cli embed
+../venv/bin/python -m backend.rag.cli status
+```
+
+El indice SQLite/FTS5 vive en `workspace/.rag_index`. Cada chunk conserva ruta, seccion, lineas, hashes y version del embedding. Las peticiones antiguas sin `modes` conservan el agente anterior; la UI envia un contrato explicito y Chat puro no ejecuta herramientas.
+
+Conversion offline a Markdown:
+
+```bash
+../venv/bin/python -m backend.rag.cli convert documento.pdf
+../venv/bin/python -m backend.rag.cli convert documento.docx
+```
+
+PDF digital usa `pypdf`; paginas sin texto e imagenes usan RapidOCR/ONNX en CPU con cache por hash. El Markdown se guarda en `workspace/.rag_sources`, se registra en `sources` y se indexa. Los pesos GOT-OCR2_0 se descargan como opcion avanzada bajo demanda, pero no quedan residentes en VRAM.
+
+Se evaluo Docling para preservar layout complejo, tablas y JSON estructurado. No se incluye en el perfil inicial por su coste de dependencias y memoria en este host; el contrato de Markdown canonico y la tabla `sources` permiten incorporarlo despues como otro conversor sin cambiar el indice.
+
+Evaluacion reproducible:
+
+```bash
+EMBEDDINGS_BASE_URL=http://127.0.0.1:8091/v1 ../venv/bin/python -m backend.rag.cli evaluate
+../venv/bin/pytest -q
+```
+
+El golden set esta en `workspace/evals/rag_golden.jsonl` y la ultima traza queda en `workspace/.rag_cache/last_evaluation.json`.
+
+## Configuracion RAG
+
+- `RAG_ENABLED`, `RAG_DOCS_DIR`, `RAG_INDEX_DIR`, `RAG_SOURCES_DIR`, `RAG_CACHE_DIR`
+- `RAG_CHUNK_TOKENS`, `RAG_CHUNK_OVERLAP`, `RAG_TOP_K`, `RAG_RERANK_TOP_K`, `RAG_CONTEXT_TOKENS`, `RAG_MIN_VECTOR_SCORE`
+- `EMBEDDINGS_PROVIDER`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_DIMENSIONS`, `EMBEDDINGS_BATCH_SIZE`
+- `OCR_ENABLED`, `OCR_PROVIDER`, `OCR_MODEL`, `OCR_MODEL_DIR`
+- `MODEL_ROUTER_ENABLED`, `MODEL_ROUTER_BASE_URL`, `MODEL_ROUTER_MAX_MODELS`
+
+En una GTX 1050 de 4 GB, el chat mantiene `LLAMA_CTX_SIZE=128000` y `LLAMA_PARALLEL=1`. Embeddings se sirve en CPU por defecto. OCR solo se carga durante ingesta; modelos auxiliares grandes deben ejecutarse secuencialmente y descargarse al finalizar.
 
 ## Ampliar herramientas
 

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+logs/*.pid
+logs/embeddings-server.log
+workspace/.rag_cache/
+workspace/.rag_index/
+workspace/.rag_sources/
+workspace/evals/*-smoke.*
+workspace/evals/ocr-boxes.png

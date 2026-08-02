@@ -5,23 +5,16 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.agent import LocalAgent
 from backend.config import APP_ROOT, LLM_BASE_URL, WORKSPACE_ROOT
+from backend.contracts import ChatRequest, ChatResponse
+from backend.rag.ingest import reindex_all
+from backend.rag.store import RagStore
 from backend.tools import registry
-
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(min_length=1)
-    history: list[ChatMessage] = Field(default_factory=list)
 
 
 class ToolRequest(BaseModel):
@@ -32,6 +25,8 @@ class ToolRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+    for name in ("docs", ".rag_index", ".rag_sources", ".rag_cache", "evals"):
+        (WORKSPACE_ROOT / name).mkdir(parents=True, exist_ok=True)
     agent = LocalAgent()
     app.state.agent = agent
     yield
@@ -67,9 +62,33 @@ async def run_tool(request: ToolRequest):
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest) -> ChatResponse:
     history = [item.model_dump() for item in request.history]
-    return await app.state.agent.chat(request.message, history)
+    return ChatResponse.model_validate(await app.state.agent.chat(request.message, history, request.modes))
+
+
+@app.get("/api/rag/status")
+async def rag_status() -> dict[str, object]:
+    return RagStore().status()
+
+
+@app.post("/api/rag/reindex")
+async def rag_reindex() -> dict[str, int]:
+    return reindex_all()
+
+
+@app.get("/api/source", response_class=PlainTextResponse)
+async def source(path: str, line: int = 1) -> str:
+    candidate = (WORKSPACE_ROOT / path).resolve()
+    try:
+        candidate.relative_to(WORKSPACE_ROOT)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Path escapes workspace") from exc
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Source not found")
+    lines = candidate.read_text(encoding="utf-8").splitlines()
+    start = max(0, line - 4)
+    return "\n".join(f"{number:>6}  {value}" for number, value in enumerate(lines[start : start + 200], start + 1))
 
 
 FRONTEND_DIR = APP_ROOT / "frontend"

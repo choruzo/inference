@@ -11,7 +11,7 @@
       <aside class="sidebar">
         <div>
           <h1>Agente local</h1>
-          <p class="muted">Modelo GGUF, herramientas de archivos y workspace aislado.</p>
+          <p class="muted">Chat local y documentacion indexada.</p>
         </div>
         <section>
           <h2>Herramientas</h2>
@@ -23,6 +23,9 @@
             <li>write_file</li>
             <li>edit_file</li>
             <li>file_info</li>
+            <li>rag_status</li>
+            <li>rag_reindex</li>
+            <li>rag_search</li>
           </ul>
         </section>
         <section>
@@ -34,7 +37,21 @@
       <section class="panel">
         <div id="messages" class="messages"></div>
         <form id="chat-form" class="composer">
-          <textarea id="prompt" rows="3" placeholder="Pide algo al agente local..."></textarea>
+          <div class="composer-main">
+            <div class="mode-row">
+              <div class="mode-picker">
+                <button id="mode-button" class="icon-button" type="button" aria-label="Elegir modos" title="Elegir modos">+</button>
+                <div id="mode-menu" class="mode-menu" hidden>
+                  <label><input type="checkbox" data-mode="chat" /> Chat</label>
+                  <label><input type="checkbox" data-mode="rag" /> RAG</label>
+                  <label><input type="checkbox" data-mode="web" /> Web</label>
+                  <label><input type="checkbox" data-mode="reasoning_panel" /> Razonamiento</label>
+                </div>
+              </div>
+              <div id="mode-chips" class="mode-chips"></div>
+            </div>
+            <textarea id="prompt" rows="3" placeholder="Escribe un mensaje..."></textarea>
+          </div>
           <button id="send" type="submit">Enviar</button>
         </form>
       </section>
@@ -44,6 +61,12 @@
       <article class="message">
         <div class="role"></div>
         <div class="content"></div>
+        <div class="citations"></div>
+        <details class="trace-panel" hidden>
+          <summary>Traza</summary>
+          <button class="copy-trace" type="button">Copiar JSON</button>
+          <pre></pre>
+        </details>
       </article>
     </template>
     <script src="/assets/app.js"></script>
