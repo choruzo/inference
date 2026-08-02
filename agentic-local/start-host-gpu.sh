@@ -55,7 +55,8 @@ else
     --model "${MODEL_PATH}" \
     --host "${LLAMA_BIND_HOST}" \
     --port "${LLAMA_PORT}" \
-    --ctx-size "${LLAMA_CTX_SIZE:-4096}" \
+    --ctx-size "${LLAMA_CTX_SIZE:-128000}" \
+    --parallel "${LLAMA_PARALLEL:-1}" \
     --threads "${LLAMA_THREADS:-8}" \
     --n-gpu-layers "${LLAMA_GPU_LAYERS:-99}" \
     >"${LOG_DIR}/llama-server.log" 2>&1 &
