@@ -75,6 +75,8 @@ EMBEDDINGS_BASE_URL=http://127.0.0.1:8091/v1 ../venv/bin/python -m backend.rag.c
 ../venv/bin/python -m backend.rag.cli status
 ```
 
+El historial del chat se conserva en localStorage hasta pulsar `Limpiar chat`, con un limite de 40 mensajes configurable mediante `MAX_CHAT_HISTORY_MESSAGES`. Chat y las respuestas RAG usan `MAX_RESPONSE_TOKENS=-1` por defecto: el servidor genera hasta que el modelo emite su fin de respuesta o agota la ventana de contexto. `RESPONSE_TIMEOUT=0` desactiva el timeout de estas generaciones. Chat no aplica un esquema JSON a la respuesta, para permitir que los modelos Thinking emitan `<think>...</think>`; las herramientas y el reranking siguen usando JSON Schema y un limite independiente mediante `MAX_STRUCTURED_TOKENS`.
+
 El indice SQLite/FTS5 vive en `workspace/.rag_index`. Cada chunk conserva ruta, seccion, lineas, hashes y version del embedding. Las peticiones antiguas sin `modes` conservan el agente anterior; la UI envia un contrato explicito y Chat puro no ejecuta herramientas.
 
 Conversion offline a Markdown:
@@ -91,11 +93,11 @@ Se evaluo Docling para preservar layout complejo, tablas y JSON estructurado. No
 Evaluacion reproducible:
 
 ```bash
-EMBEDDINGS_BASE_URL=http://127.0.0.1:8091/v1 ../venv/bin/python -m backend.rag.cli evaluate
+LLM_BASE_URL=http://127.0.0.1:8080/v1 EMBEDDINGS_BASE_URL=http://127.0.0.1:8091/v1 ../venv/bin/python -m backend.rag.cli evaluate
 ../venv/bin/pytest -q
 ```
 
-El golden set esta en `workspace/evals/rag_golden.jsonl` y la ultima traza queda en `workspace/.rag_cache/last_evaluation.json`.
+La evaluacion genera respuestas RAG reales y calcula por separado retrieval, citas emitidas y grounding de la respuesta. El golden set esta en `workspace/evals/rag_golden.jsonl` y la ultima traza queda en `workspace/.rag_cache/last_evaluation.json`.
 
 ## Configuracion RAG
 
@@ -103,9 +105,12 @@ El golden set esta en `workspace/evals/rag_golden.jsonl` y la ultima traza queda
 - `RAG_CHUNK_TOKENS`, `RAG_CHUNK_OVERLAP`, `RAG_TOP_K`, `RAG_RERANK_TOP_K`, `RAG_CONTEXT_TOKENS`, `RAG_MIN_VECTOR_SCORE`
 - `EMBEDDINGS_PROVIDER`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_DIMENSIONS`, `EMBEDDINGS_BATCH_SIZE`
 - `OCR_ENABLED`, `OCR_PROVIDER`, `OCR_MODEL`, `OCR_MODEL_DIR`
-- `MODEL_ROUTER_ENABLED`, `MODEL_ROUTER_BASE_URL`, `MODEL_ROUTER_MAX_MODELS`
+- `MODEL_ROUTER_ENABLED`, `MODEL_ROUTER_BASE_URL`, `MODEL_ROUTER_MAX_MODELS`, `MODEL_ROUTER_RESTORE_CHAT`
+- `MAX_RESPONSE_TOKENS`, `MAX_STRUCTURED_TOKENS`, `MAX_CHAT_HISTORY_MESSAGES`, `RESPONSE_TIMEOUT`
 
-En una GTX 1050 de 4 GB, el chat mantiene `LLAMA_CTX_SIZE=128000` y `LLAMA_PARALLEL=1`. Embeddings se sirve en CPU por defecto. OCR solo se carga durante ingesta; modelos auxiliares grandes deben ejecutarse secuencialmente y descargarse al finalizar.
+Para probar la carga secuencial real, detiene primero cualquier arranque normal y ejecuta `MODEL_ROUTER_ENABLED=true ./start-host-gpu.sh`. El preset `rag-models.ini` usa los alias `local-gguf` y `bge-small-en-v1.5`, arranca chat, mantiene `--models-max 1` y carga embeddings solo durante indexado.
+
+En una GTX 1050 de 4 GB, el chat mantiene `LLAMA_CTX_SIZE=128000` y `LLAMA_PARALLEL=1`. Embeddings se sirve en CPU por defecto. OCR solo se carga durante ingesta. Con `MODEL_ROUTER_ENABLED=true`, la conversion descarga chat y embeddings mediante `/models/unload`, carga embeddings para indexar y restaura el chat mediante `/models/load`, incluso si el trabajo falla.
 
 ## Ampliar herramientas
 

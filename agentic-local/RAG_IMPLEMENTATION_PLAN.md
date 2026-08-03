@@ -12,7 +12,7 @@ Los modos deben poder activarse o desactivarse desde el cuadro de chat usando un
 
 ## Estado de Implementacion
 
-Actualizado el 2 de agosto de 2026.
+Actualizado el 3 de agosto de 2026.
 
 Las fases 0 a 9 estan implementadas y operativas. Las fases 10 a 12 permanecen planificadas y fuera del alcance de esta entrega.
 
@@ -26,12 +26,12 @@ Las fases 0 a 9 estan implementadas y operativas. Las fases 10 a 12 permanecen p
 | 5. Embeddings | Completada | BGE Small Q8_0, endpoint llama.cpp de 384 dimensiones e invalidacion por modelo |
 | 6. Busqueda hibrida | Completada | Vector + FTS, RRF, filtros, diversidad, presupuesto y top-k adaptativo |
 | 7. Reranking | Completada | JSON Schema estricto, cache versionada y guardrail de evidencia lexical/vectorial |
-| 8. Evaluacion | Completada | Golden set, 17 tests y metricas reproducibles en `backend/rag/evaluate.py` |
+| 8. Evaluacion | Completada | Golden set E2E de 3 casos, 21 tests y metricas reproducibles en `backend/rag/evaluate.py` |
 | 9. Documentos y OCR | Completada | PDF/DOCX a Markdown, RapidOCR offline, cache con bounding boxes y orquestacion secuencial |
 
 Validacion final:
 
-- `pytest`: 17 tests superados.
+- `pytest`: 21 tests superados.
 - Golden set: `hit@k=1.0`, `top_source_accuracy=1.0`, `citation_accuracy=1.0` y `answer_groundedness=1.0`.
 - Pruebas E2E con modelo real: Chat puro, RAG citado, rechazo sin evidencia y reranking protegido.
 - Pruebas reales de PDF digital, PDF escaneado, OCR cacheado y ausencia de worker OCR residente tras la ingesta.
@@ -429,6 +429,50 @@ Schema:
 }
 ```
 
+#### Proveedores de busqueda
+
+- **SearXNG** sera el proveedor principal: se ejecutara autoalojado, no requiere clave y evita cuotas propias por consulta.
+- **Tavily** sera el fallback: se usara cuando SearXNG falle, alcance el timeout o devuelva menos resultados utiles que `WEB_SEARCH_MIN_RESULTS`.
+- No consultar ambos proveedores por defecto, para evitar resultados duplicados y consumir innecesariamente los creditos gratuitos de Tavily.
+- Permitir seleccionar un proveedor concreto mediante configuracion, sin cambiar el contrato de `web_search`.
+- Normalizar las respuestas de ambos proveedores al mismo formato: `title`, `url`, `snippet`, `published_at`, `score` y `provider`.
+- Deduplicar resultados por URL canonica antes de devolverlos al agente.
+
+Flujo previsto:
+
+```text
+web_search
+  -> SearXNG
+  -> si falla o hay pocos resultados utiles: Tavily
+  -> normalizacion y deduplicacion
+  -> resultados con proveedor y metadatos
+```
+
+Configuracion propuesta:
+
+```env
+WEB_SEARCH_PROVIDER=searxng
+WEB_SEARCH_FALLBACK=tavily
+WEB_SEARCH_MIN_RESULTS=3
+SEARXNG_URL=http://searxng:8080
+TAVILY_API_KEY=
+WEB_TIMEOUT=15
+WEB_MAX_BYTES=2000000
+```
+
+Ejemplo de resultado normalizado:
+
+```json
+{
+  "title": "Titulo de la pagina",
+  "url": "https://example.com/page",
+  "snippet": "Fragmento relevante",
+  "published_at": null,
+  "score": 0.81,
+  "provider": "searxng"
+}
+```
+
 ### `web_fetch`
 
 Responsabilidad:
@@ -446,13 +490,17 @@ Schema:
 }
 ```
 
+`web_fetch` sera independiente del proveedor de busqueda. Descargara la URL directamente con `httpx` y extraera el contenido principal localmente con `trafilatura` o `readability-lxml`, usando `BeautifulSoup` como fallback. No se enviara a Tavily el contenido de documentos locales ni de las paginas descargadas.
+
 ### Seguridad
 
 - timeouts estrictos;
 - limite de tamano;
 - bloquear protocolos no HTTP/HTTPS;
+- bloquear destinos locales, privados, loopback y link-local para evitar SSRF;
 - no ejecutar scripts;
 - registrar URL final tras redirects;
+- aplicar limite de redirects, user agent identificable y backoff ante `429`;
 - mostrar claramente que la fuente viene de internet.
 
 ## Modos del Chat
@@ -807,15 +855,20 @@ Objetivo: busqueda externa opt-in, separada de RAG local.
 
 Tareas:
 
-- Implementar `web_search` con limite, timeout y metadatos.
-- Implementar `web_fetch` con extraccion de contenido principal.
+- Implementar adaptadores de `web_search` para SearXNG y Tavily con limite, timeout y metadatos.
+- Usar SearXNG como proveedor principal y Tavily como fallback configurable cuando falle o entregue pocos resultados utiles.
+- Normalizar y deduplicar resultados, conservando el proveedor de cada fuente en la respuesta y en el trace.
+- Implementar `web_fetch` directo con `httpx` y extraccion local de contenido principal.
 - Separar fuentes locales y web en la respuesta.
-- Anadir politicas de seguridad: HTTP/HTTPS, tamano maximo, redirects, user agent y bloqueo de scripts.
+- Anadir politicas de seguridad: HTTP/HTTPS, proteccion SSRF, tamano maximo, redirects, user agent, backoff y bloqueo de scripts.
+- Anadir SearXNG como servicio opcional de Docker y documentar la clave y cuota de Tavily sin incluir secretos en el repositorio.
 
 Criterio de salida:
 
 - Web desactivado no hace red.
 - Web activado muestra URLs y fecha/metadatos cuando existan.
+- Una caida de SearXNG activa Tavily sin cambiar el contrato de la herramienta.
+- Tavily no se consulta mientras SearXNG produzca suficientes resultados utiles.
 
 ### Fase 11: Modos de Profesor
 
@@ -867,13 +920,19 @@ Criterio de salida:
 - vector search devuelve candidatos esperados;
 - RRF fusiona rankings de forma estable;
 - citas apuntan a chunks existentes;
-- `web_fetch` bloquea protocolos no permitidos.
+- resultados de SearXNG y Tavily se normalizan al mismo schema;
+- URLs equivalentes se deduplican de forma estable;
+- Tavily solo se activa al cumplirse la politica de fallback;
+- `web_fetch` bloquea protocolos no permitidos;
+- `web_fetch` bloquea direcciones locales, privadas, loopback y link-local, incluso tras redirects.
 
 ### Integracion
 
 - pregunta con RAG activo devuelve cita local;
 - pregunta sin evidencia responde que no hay informacion suficiente;
 - RAG + Web conserva fuentes separadas;
+- caida o resultados insuficientes de SearXNG activan Tavily;
+- busqueda satisfactoria en SearXNG no consume creditos de Tavily;
 - Chat solo no llama herramientas;
 - panel de razonamiento recibe `trace`;
 - menu `+` persiste modos.

@@ -31,7 +31,10 @@ services:
       LLM_MODEL: local-gguf
       AGENT_WORKSPACE: /workspace
       MAX_AGENT_STEPS: "8"
-      MAX_RESPONSE_TOKENS: "512"
+      MAX_RESPONSE_TOKENS: ${MAX_RESPONSE_TOKENS:--1}
+      MAX_STRUCTURED_TOKENS: ${MAX_STRUCTURED_TOKENS:-2048}
+      RESPONSE_TIMEOUT: ${RESPONSE_TIMEOUT:-0}
+      MAX_CHAT_HISTORY_MESSAGES: ${MAX_CHAT_HISTORY_MESSAGES:-40}
       RAG_ENABLED: ${RAG_ENABLED:-true}
       RAG_DOCS_DIR: /workspace/docs
       RAG_INDEX_DIR: /workspace/.rag_index
@@ -41,6 +44,10 @@ services:
       EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-http://host.docker.internal:8091/v1}
       EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-bge-small-en-v1.5}
       OCR_PROVIDER: ${OCR_PROVIDER:-rapidocr}
+      MODEL_ROUTER_ENABLED: ${MODEL_ROUTER_ENABLED:-false}
+      MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-http://host.docker.internal:8080}
+      MODEL_ROUTER_MAX_MODELS: ${MODEL_ROUTER_MAX_MODELS:-1}
+      MODEL_ROUTER_RESTORE_CHAT: ${MODEL_ROUTER_RESTORE_CHAT:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

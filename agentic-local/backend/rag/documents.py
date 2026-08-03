@@ -6,10 +6,12 @@ import shutil
 import subprocess
 import tempfile
 import time
+from contextlib import AbstractContextManager
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
-from backend.config import OCR_ENABLED, OCR_MODEL, OCR_PROVIDER, RAG_CACHE_DIR, RAG_SOURCES_DIR, WORKSPACE_ROOT
+from backend.config import EMBEDDINGS_MODEL, LLM_MODEL, MODEL_ROUTER_BASE_URL, MODEL_ROUTER_ENABLED, MODEL_ROUTER_RESTORE_CHAT, OCR_ENABLED, OCR_MODEL, OCR_PROVIDER, RAG_CACHE_DIR, RAG_SOURCES_DIR, WORKSPACE_ROOT
 from backend.rag.store import RagStore
 
 
@@ -26,6 +28,84 @@ def _safe_input(path: Path) -> Path:
 
 def _cache_key(data: bytes, provider: str) -> str:
     return hashlib.sha256(data + provider.encode()).hexdigest()
+
+
+def _router_request(action: str, model: str) -> None:
+    import httpx
+
+    response = httpx.post(
+        f"{MODEL_ROUTER_BASE_URL.rstrip('/')}/models/{action}",
+        json={"model": model},
+        timeout=300,
+    )
+    if response.status_code == 400 and action == "unload" and "not running" in response.text:
+        return
+    response.raise_for_status()
+    if response.json().get("success") is not True:
+        raise RuntimeError(f"Router could not {action} model {model}")
+
+
+class ModelRouterSession(AbstractContextManager["ModelRouterSession"]):
+    def __init__(self) -> None:
+        self.events: list[dict[str, str]] = []
+        self._unloaded: list[str] = []
+        self._embeddings_loaded = False
+
+    def _call(self, action: str, model: str) -> None:
+        _router_request(action, model)
+        self.events.append({"action": action, "model": model})
+
+    def __enter__(self) -> "ModelRouterSession":
+        try:
+            for model in dict.fromkeys((LLM_MODEL, EMBEDDINGS_MODEL)):
+                self._call("unload", model)
+                self._unloaded.append(model)
+        except Exception:
+            for model in reversed(self._unloaded):
+                try:
+                    self._call("load", model)
+                except Exception:
+                    pass
+            raise
+        return self
+
+    def index_new_embeddings(self, store: RagStore | None = None) -> dict[str, int | str]:
+        self._call("load", EMBEDDINGS_MODEL)
+        self._embeddings_loaded = True
+        from backend.rag.embeddings import index_embeddings
+
+        return index_embeddings(store=store)
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        restoration_errors: list[str] = []
+        if self._embeddings_loaded:
+            try:
+                self._call("unload", EMBEDDINGS_MODEL)
+            except Exception as error:
+                restoration_errors.append(str(error))
+        if MODEL_ROUTER_RESTORE_CHAT:
+            try:
+                self._call("load", LLM_MODEL)
+            except Exception as error:
+                restoration_errors.append(str(error))
+        if restoration_errors and exc_type is None:
+            raise RuntimeError("Model restoration failed: " + "; ".join(restoration_errors))
+        return False
+
+
+def orchestrated_conversion(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        if not MODEL_ROUTER_ENABLED:
+            return function(*args, **kwargs)
+        with ModelRouterSession() as session:
+            result = function(*args, **kwargs)
+            store = kwargs.get("store") or (args[1] if len(args) > 1 else None)
+            result["embedding_index"] = session.index_new_embeddings(store)
+            result["orchestration"] = session.events
+            return result
+
+    return wrapper
 
 
 def _ocr_image(path: Path, provider: str = OCR_PROVIDER) -> str:
@@ -115,6 +195,8 @@ def _docx_to_markdown(path: Path) -> tuple[str, dict[str, Any]]:
     return "\n".join(output), {"paragraphs": len(document.paragraphs), "tables": len(document.tables)}
 
 
+
+@orchestrated_conversion
 def convert_to_markdown(path: Path, store: RagStore | None = None) -> dict[str, Any]:
     path = _safe_input(path)
     store = store or RagStore()

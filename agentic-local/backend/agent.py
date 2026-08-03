@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from backend.config import LLM_BASE_URL, LLM_MODEL, MAX_AGENT_STEPS, MAX_RESPONSE_TOKENS, MAX_TOOL_OUTPUT_CHARS, RAG_RERANK_TOP_K, REQUEST_TIMEOUT, WORKSPACE_ROOT
+from backend.config import LLM_BASE_URL, LLM_MODEL, MAX_AGENT_STEPS, MAX_CHAT_HISTORY_MESSAGES, MAX_RESPONSE_TOKENS, MAX_STRUCTURED_TOKENS, MAX_TOOL_OUTPUT_CHARS, RAG_RERANK_TOP_K, REQUEST_TIMEOUT, RESPONSE_TIMEOUT, WORKSPACE_ROOT
 from backend.contracts import RetrievalChunk, RetrievalResult
 from backend.modes import ChatModes
 from backend.rag.citations import build_citations, context_with_citations, validate_citations
@@ -193,8 +193,10 @@ def _paragraphs_are_cited(answer: str) -> bool:
 
 
 class LocalAgent:
-    def __init__(self) -> None:
+    def __init__(self, rag_store=None, embedding_client=None) -> None:
         self.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+        self.rag_store = rag_store
+        self.embedding_client = embedding_client
 
     async def close(self) -> None:
         await self.client.aclose()
@@ -230,7 +232,7 @@ class LocalAgent:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT.format(tools=registry.describe_for_prompt())},
         ]
-        for item in history or []:
+        for item in (history or [])[-MAX_CHAT_HISTORY_MESSAGES:]:
             if item.get("role") in {"user", "assistant"} and item.get("content"):
                 messages.append({"role": item["role"], "content": item["content"]})
         messages.append({"role": "user", "content": user_message})
@@ -306,21 +308,32 @@ class LocalAgent:
 
     async def _plain_chat(self, user_message: str, history: list[dict[str, str]] | None, modes: ChatModes) -> dict[str, Any]:
         messages = [{"role": "system", "content": "Responde en el idioma del usuario. No uses herramientas ni afirmes haber inspeccionado archivos."}]
-        messages.extend(item for item in (history or []) if item.get("role") in {"user", "assistant"} and item.get("content"))
+        messages.extend(item for item in (history or [])[-MAX_CHAT_HISTORY_MESSAGES:] if item.get("role") in {"user", "assistant"} and item.get("content"))
         messages.append({"role": "user", "content": user_message})
+        raw_outputs: list[str] = []
         try:
-            content = await self._complete_text(messages)
+            content = await self._complete_text(messages, max_tokens=MAX_RESPONSE_TOKENS)
+            raw_outputs.append(content)
+            parsed = _extract_json(content)
+            answer = str(parsed["final"]).strip() if parsed and "final" in parsed else _strip_thinking(content)
+            if not answer:
+                retry_messages = messages + [{"role": "user", "content": "Responde ahora de forma directa. Devuelve el campo final y no dejes el razonamiento sin cerrar."}]
+                content = await self._complete_text(retry_messages, max_tokens=MAX_RESPONSE_TOKENS)
+                raw_outputs.append(content)
+                parsed = _extract_json(content)
+                answer = str(parsed["final"]).strip() if parsed and "final" in parsed else _strip_thinking(content)
         except httpx.TimeoutException:
             return self._response("El modelo local ha agotado el tiempo de respuesta.", [], "llm_timeout")
         except httpx.HTTPError as exc:
             return self._response(f"Error llamando al servidor LLM: {type(exc).__name__}: {exc}", [], "llm_error")
-        parsed = _extract_json(content)
-        answer = str(parsed["final"]) if parsed and "final" in parsed else _strip_thinking(content)
-        trace = [{"type": "model", "event": "completion", "data": {"raw": content}}] if modes.reasoning_panel else []
-        return self._response(answer, trace, "final", reasoning=_thinking(content) if modes.reasoning_panel else None)
+        trace = [{"type": "model", "event": "completion", "data": {"attempts": raw_outputs}}] if modes.reasoning_panel else []
+        reasoning = "\n\n--- reintento ---\n\n".join(filter(None, (_thinking(value) for value in raw_outputs))) or None
+        if not answer:
+            return self._response("El modelo no produjo una respuesta final completa.", trace, "generation_incomplete", reasoning=reasoning if modes.reasoning_panel else None)
+        return self._response(answer, trace, "final", reasoning=reasoning if modes.reasoning_panel else None)
 
     async def _rag_chat(self, user_message: str, history: list[dict[str, str]] | None, modes: ChatModes) -> dict[str, Any]:
-        candidates, search_trace = hybrid_search(user_message, top_k=max(RAG_RERANK_TOP_K * 2, 8))
+        candidates, search_trace = hybrid_search(user_message, store=self.rag_store, client=self.embedding_client, top_k=max(RAG_RERANK_TOP_K * 2, 8))
         trace: list[dict[str, Any]] = [{"type": "rag", "event": "retrieval", "data": search_trace}]
         if not candidates:
             return self._response("No lo encuentro en la documentacion indexada.", trace, "no_evidence", retrieval=RetrievalResult(query=user_message).model_dump())
@@ -333,7 +346,7 @@ class LocalAgent:
             )
             return json.dumps(_extract_json(raw) or {})
 
-        ranked, rank_trace = await rerank(user_message, candidates, rank_completion, top_k=RAG_RERANK_TOP_K)
+        ranked, rank_trace = await rerank(user_message, candidates, rank_completion, store=self.rag_store, top_k=RAG_RERANK_TOP_K)
         trace.append({"type": "rerank", "event": "ranking", "data": rank_trace})
         context = context_with_citations(ranked)
         prompt = (
@@ -343,10 +356,10 @@ class LocalAgent:
             f"Pregunta: {user_message}\n\n{context}"
         )
         messages = [{"role": "system", "content": "Eres un asistente RAG riguroso. Responde en el idioma de la pregunta y no inventes datos."}]
-        messages.extend(item for item in (history or [])[-6:] if item.get("role") in {"user", "assistant"} and item.get("content"))
+        messages.extend(item for item in (history or [])[-MAX_CHAT_HISTORY_MESSAGES:] if item.get("role") in {"user", "assistant"} and item.get("content"))
         messages.append({"role": "user", "content": prompt})
         try:
-            raw = await self._complete_text(messages, max_tokens=max(1024, MAX_RESPONSE_TOKENS * 2))
+            raw = await self._complete_text(messages, max_tokens=MAX_RESPONSE_TOKENS)
             parsed = _extract_json(raw)
             answer = str(parsed["final"]) if parsed and "final" in parsed else _strip_thinking(raw)
             reasoning = _thinking(raw) if modes.reasoning_panel else None
@@ -358,7 +371,7 @@ class LocalAgent:
                 )
                 raw = await self._complete_text(
                     [{"role": "system", "content": "Da una respuesta factual, breve y citada."}, {"role": "user", "content": retry_prompt}],
-                    max_tokens=max(2048, MAX_RESPONSE_TOKENS * 4),
+                    max_tokens=MAX_RESPONSE_TOKENS,
                 )
                 answer = _strip_thinking(raw)
                 reasoning = _thinking(raw) if modes.reasoning_panel else None
@@ -376,7 +389,7 @@ class LocalAgent:
         else:
             referenced = {int(value) for value in re.findall(r"\[(\d+)\]", answer)}
             citations = [citation for citation in citations if citation.id in referenced]
-            if not citations or not validate_citations(citations):
+            if not citations or not validate_citations(citations, self.rag_store):
                 return self._response("No lo encuentro en la documentacion indexada.", trace, "invalid_citations")
         retrieval_chunks = [RetrievalChunk(chunk_id=str(item["id"]), path=str(item["path"]), title=str(item.get("title", "")), section=str(item.get("section", "")), start_line=int(item["start_line"]), end_line=int(item["end_line"]), content=str(item["content"]), score=float(item["score"]), reasons=list(item.get("reasons", []))) for item in ranked]
         retrieval = RetrievalResult(query=user_message, chunks=retrieval_chunks, reranked=[str(item["id"]) for item in ranked]).model_dump()
@@ -392,7 +405,7 @@ class LocalAgent:
                 "temperature": 0.0,
                 "top_k": 50,
                 "repeat_penalty": 1.05,
-                "max_tokens": MAX_RESPONSE_TOKENS,
+                "max_tokens": MAX_STRUCTURED_TOKENS,
                 "stop": ["<|im_end|>"],
             },
         )
@@ -407,6 +420,7 @@ class LocalAgent:
         response = await self.client.post(
             f"{LLM_BASE_URL.rstrip('/')}/chat/completions",
             json=payload,
+            timeout=None if RESPONSE_TIMEOUT <= 0 else RESPONSE_TIMEOUT,
         )
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]

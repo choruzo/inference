@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+
+import backend.rag.evaluate as rag_evaluation
 from docx import Document
 from pypdf import PdfWriter
 from pydantic import ValidationError
@@ -15,7 +17,7 @@ from backend.contracts import ChatRequest
 from backend.modes import ChatModes
 from backend.rag.chunking import chunk_text
 from backend.rag.citations import build_citations, validate_citations
-from backend.rag.documents import convert_to_markdown
+from backend.rag.documents import ModelRouterSession, convert_to_markdown
 from backend.rag.embeddings import EmbeddingClient, index_embeddings
 from backend.rag.ingest import ingest_documents, reindex_all
 from backend.rag.search import hybrid_search, reciprocal_rank_fusion, vector_search
@@ -228,7 +230,7 @@ def test_chat_only_never_uses_tool(monkeypatch: pytest.MonkeyPatch):
     agent = LocalAgent()
     called = []
 
-    async def complete(messages, max_tokens=512):
+    async def complete(messages, max_tokens=512, **kwargs):
         called.append(messages)
         return "Respuesta normal"
 
@@ -244,4 +246,97 @@ def test_frontend_persists_modes_and_renders_trace():
     script = Path("frontend/app.js").read_text(encoding="utf-8")
     html = Path("frontend/index.html").read_text(encoding="utf-8")
     assert "localStorage.setItem" in script and "modes" in script
-    assert "copy-trace" in html and 'id="mode-button"' in html
+    assert "HISTORY_KEY" in script and "saveHistory" in script and "localStorage.removeItem(HISTORY_KEY)" in script
+    assert "history.slice(0, -1)" in script and "MAX_HISTORY_MESSAGES = 40" in script
+    assert "copy-trace" in html and 'id="mode-button"' in html and 'id="clear-chat"' in html
+
+
+
+def test_plain_chat_retries_incomplete_thinking_and_keeps_history(monkeypatch: pytest.MonkeyPatch):
+    agent = LocalAgent()
+    calls = []
+    responses = iter([
+        "<think>razonamiento sin cerrar",
+        '<think>breve</think>{"final":"AZULEJO-731"}',
+    ])
+
+    async def complete(messages, **kwargs):
+        calls.append((messages, kwargs))
+        return next(responses)
+
+    monkeypatch.setattr(agent, "_complete_text", complete)
+    result = asyncio.run(
+        agent.chat(
+            "¿Cuál es mi código?",
+            [{"role": "user", "content": "Mi código es AZULEJO-731."}],
+            ChatModes(chat=True, reasoning_panel=True),
+        )
+    )
+    asyncio.run(agent.close())
+    assert result["answer"] == "AZULEJO-731"
+    assert result["stopped"] == "final"
+    assert len(calls) == 2
+    assert any("AZULEJO-731" in item["content"] for item in calls[0][0])
+    assert calls[0][1]["max_tokens"] == -1
+    assert calls[1][1]["max_tokens"] == -1
+    assert "response_format" not in calls[0][1]
+
+
+def test_router_session_unloads_indexes_and_restores_models(monkeypatch: pytest.MonkeyPatch):
+    events = []
+
+    def router_call(action, model):
+        events.append((action, model))
+
+    monkeypatch.setattr("backend.rag.documents._router_request", router_call)
+    monkeypatch.setattr("backend.rag.embeddings.index_embeddings", lambda store=None: {"indexed": 2})
+    with ModelRouterSession() as session:
+        assert session.index_new_embeddings() == {"indexed": 2}
+
+    assert events[0][0] == "unload"
+    assert events[1][0] == "unload"
+    assert ("load", "bge-small-en-v1.5") in events
+    assert events[-1] == ("load", "local-gguf")
+    assert events.count(("unload", "bge-small-en-v1.5")) == 2
+
+
+def test_router_session_restores_chat_after_conversion_failure(monkeypatch: pytest.MonkeyPatch):
+    events = []
+    monkeypatch.setattr("backend.rag.documents._router_request", lambda action, model: events.append((action, model)))
+    with pytest.raises(RuntimeError, match="conversion failed"):
+        with ModelRouterSession():
+            raise RuntimeError("conversion failed")
+    assert events[-1] == ("load", "local-gguf")
+
+
+
+def test_evaluation_scores_generated_citations_not_only_retrieval(monkeypatch: pytest.MonkeyPatch):
+    retrieved = [{"path": "docs/runtime.md", "content": "valor 1"}]
+    monkeypatch.setattr(rag_evaluation, "hybrid_search", lambda *args, **kwargs: (retrieved, {"selected": ["chunk"]}))
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            pass
+
+        async def chat(self, *args, **kwargs):
+            return {
+                "answer": "El valor es 1 [1].",
+                "citations": [{"id": 1, "path": "docs/incorrecto.md"}],
+                "stopped": "final",
+            }
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(rag_evaluation, "LocalAgent", FakeAgent)
+    results = asyncio.run(
+        rag_evaluation._evaluate_cases(
+            [{"question": "valor", "expected_answer": "1", "expected_sources": ["docs/runtime.md"]}],
+            object(),
+            None,
+            5,
+        )
+    )
+    assert results[0]["hit"] is True
+    assert results[0]["citation_correct"] is False
+    assert results[0]["grounded"] is False

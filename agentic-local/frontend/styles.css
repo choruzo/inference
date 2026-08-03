@@ -178,6 +178,16 @@ li,
   font-size: 11px;
 }
 
+.clear-chat {
+  min-height: 28px;
+  margin-left: auto;
+  padding: 4px 9px;
+  border: 1px solid #555;
+  background: transparent;
+  color: #c7c0b5;
+  font-size: 12px;
+}
+
 .citations {
   margin-top: 12px;
 }

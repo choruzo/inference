@@ -7,10 +7,13 @@ const template = document.querySelector("#message-template");
 const modeButton = document.querySelector("#mode-button");
 const modeMenu = document.querySelector("#mode-menu");
 const modeChips = document.querySelector("#mode-chips");
+const clearChatButton = document.querySelector("#clear-chat");
 const MODE_KEY = "agentic-local-modes-v1";
+const HISTORY_KEY = "agentic-local-history-v1";
+const MAX_HISTORY_MESSAGES = 40;
 const defaults = { chat: true, rag: false, web: false, reasoning_panel: true };
 
-const history = [];
+let history = loadHistory();
 let modes = loadModes();
 
 function loadModes() {
@@ -19,6 +22,23 @@ function loadModes() {
   } catch (_) {
     return { ...defaults };
   }
+}
+
+function loadHistory() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    if (!Array.isArray(stored)) return [];
+    return stored
+      .filter((item) => ["user", "assistant"].includes(item?.role) && typeof item?.content === "string")
+      .slice(-MAX_HISTORY_MESSAGES);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveHistory() {
+  history = history.slice(-MAX_HISTORY_MESSAGES);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
 }
 
 function renderModes() {
@@ -86,24 +106,34 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest(".mode-picker")) modeMenu.hidden = true;
 });
 
+clearChatButton.addEventListener("click", () => {
+  history = [];
+  localStorage.removeItem(HISTORY_KEY);
+  messagesEl.replaceChildren();
+  addMessage("assistant", "Chat limpiado.");
+  promptInput.focus();
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = promptInput.value.trim();
   if (!message) return;
   addMessage("user", message);
   history.push({ role: "user", content: message });
+  saveHistory();
   promptInput.value = "";
   sendButton.disabled = true;
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history: history.slice(-12, -1), modes }),
+      body: JSON.stringify({ message, history: history.slice(0, -1), modes }),
     });
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json();
     addMessage("assistant", data.answer, data);
     history.push({ role: "assistant", content: data.answer });
+    saveHistory();
   } catch (error) {
     addMessage("assistant", `Error: ${error.message}`);
   } finally {
@@ -113,5 +143,9 @@ form.addEventListener("submit", async (event) => {
 });
 
 renderModes();
-addMessage("assistant", "Listo.");
+if (history.length) {
+  history.forEach((item) => addMessage(item.role, item.content));
+} else {
+  addMessage("assistant", "Listo.");
+}
 refreshStatus();

@@ -1,2 +1,3 @@
 {"question":"¿Que valor debe tener LLAMA_PARALLEL?","expected_answer":"1","expected_sources":["docs/runtime.md"],"query_type":"exact"}
 {"question":"¿Como se limita el uso simultaneo de modelos?","expected_answer":"models-max 1","expected_sources":["docs/runtime.md"],"query_type":"conceptual"}
+{"question":"¿Cual es la capital administrativa de Marte?","expected_answer":"No lo encuentro en la documentacion indexada","expected_sources":[],"query_type":"no_evidence"}

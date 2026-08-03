@@ -8,9 +8,12 @@ WORKSPACE_ROOT = Path(os.getenv("AGENT_WORKSPACE", APP_ROOT / "workspace")).reso
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://llm:8080/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "local-gguf")
 REQUEST_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "180"))
+RESPONSE_TIMEOUT = float(os.getenv("RESPONSE_TIMEOUT", "0"))
 
 MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "8"))
-MAX_RESPONSE_TOKENS = int(os.getenv("MAX_RESPONSE_TOKENS", "512"))
+MAX_RESPONSE_TOKENS = int(os.getenv("MAX_RESPONSE_TOKENS", "-1"))
+MAX_STRUCTURED_TOKENS = int(os.getenv("MAX_STRUCTURED_TOKENS", "2048"))
+MAX_CHAT_HISTORY_MESSAGES = int(os.getenv("MAX_CHAT_HISTORY_MESSAGES", "40"))
 MAX_TOOL_OUTPUT_CHARS = int(os.getenv("MAX_TOOL_OUTPUT_CHARS", "12000"))
 MAX_FILE_READ_CHARS = int(os.getenv("MAX_FILE_READ_CHARS", "20000"))
 
@@ -43,6 +46,7 @@ OCR_MODEL_DIR = Path(os.getenv("OCR_MODEL_DIR", APP_ROOT.parent / "model" / "GOT
 MODEL_ROUTER_ENABLED = os.getenv("MODEL_ROUTER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 MODEL_ROUTER_BASE_URL = os.getenv("MODEL_ROUTER_BASE_URL", "http://localhost:8080")
 MODEL_ROUTER_MAX_MODELS = int(os.getenv("MODEL_ROUTER_MAX_MODELS", "1"))
+MODEL_ROUTER_RESTORE_CHAT = os.getenv("MODEL_ROUTER_RESTORE_CHAT", "true").lower() in {"1", "true", "yes", "on"}
 
 WEB_SEARCH_URL = os.getenv("WEB_SEARCH_URL", "https://html.duckduckgo.com/html/")
 WEB_TIMEOUT = float(os.getenv("WEB_TIMEOUT", "15"))
