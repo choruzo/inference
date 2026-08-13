@@ -45,7 +45,7 @@ OCR_MODEL = os.getenv("OCR_MODEL", "RapidOCR/PP-OCRv4")
 OCR_MODEL_DIR = Path(os.getenv("OCR_MODEL_DIR", APP_ROOT.parent / "model" / "GOT-OCR2_0")).resolve()
 MODEL_ROUTER_ENABLED = os.getenv("MODEL_ROUTER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 MODEL_ROUTER_BASE_URL = os.getenv("MODEL_ROUTER_BASE_URL", "http://localhost:8080")
-MODEL_ROUTER_MAX_MODELS = int(os.getenv("MODEL_ROUTER_MAX_MODELS", "1"))
+MODEL_ROUTER_MAX_MODELS = int(os.getenv("MODEL_ROUTER_MAX_MODELS", "2"))
 MODEL_ROUTER_RESTORE_CHAT = os.getenv("MODEL_ROUTER_RESTORE_CHAT", "true").lower() in {"1", "true", "yes", "on"}
 
 WEB_SEARCH_URL = os.getenv("WEB_SEARCH_URL", "https://html.duckduckgo.com/html/")

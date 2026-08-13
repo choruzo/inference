@@ -58,6 +58,13 @@ class RagStore:
             );
             CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id);
             CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, chunk_id UNINDEXED, tokenize='unicode61');
+            -- chunks.document_id has ON DELETE CASCADE, but SQLite foreign keys don't
+            -- reach into FTS5 virtual tables: deleting a document (or any raw DELETE on
+            -- chunks) would silently leave orphaned/stale chunk_fts rows behind without
+            -- this trigger, corrupting keyword search with duplicate/dead hits.
+            CREATE TRIGGER IF NOT EXISTS chunk_fts_ad AFTER DELETE ON chunks BEGIN
+              DELETE FROM chunk_fts WHERE chunk_id = old.id;
+            END;
             CREATE TABLE IF NOT EXISTS embeddings(
               chunk_id TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE, model TEXT NOT NULL,
               dimensions INTEGER NOT NULL, vector_blob BLOB NOT NULL, content_hash TEXT NOT NULL,

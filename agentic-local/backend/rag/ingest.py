@@ -65,9 +65,6 @@ def ingest_documents(docs_dir: Path = RAG_DOCS_DIR, store: RagStore | None = Non
                        content_hash=excluded.content_hash,indexed_at=excluded.indexed_at,updated_at=excluded.updated_at,tags_json=excluded.tags_json""",
                     (doc_id, relative, path.suffix.lower().lstrip("."), relative, title, document_hash, now, now, json.dumps(_tags(text))),
                 )
-                old_ids = [row[0] for row in db.execute("SELECT id FROM chunks WHERE document_id=?", (doc_id,))]
-                for old_id in old_ids:
-                    db.execute("DELETE FROM chunk_fts WHERE chunk_id=?", (old_id,))
                 db.execute("DELETE FROM chunks WHERE document_id=?", (doc_id,))
                 chunks = chunk_text(path, text, RAG_CHUNK_TOKENS, RAG_CHUNK_OVERLAP)
                 for item in chunks:
@@ -82,9 +79,6 @@ def ingest_documents(docs_dir: Path = RAG_DOCS_DIR, store: RagStore | None = Non
                 stats["chunks"] += len(chunks)
             for relative, document in known.items():
                 if relative not in seen:
-                    old_ids = [row[0] for row in db.execute("SELECT id FROM chunks WHERE document_id=?", (document["id"],))]
-                    for old_id in old_ids:
-                        db.execute("DELETE FROM chunk_fts WHERE chunk_id=?", (old_id,))
                     db.execute("DELETE FROM documents WHERE id=?", (document["id"],))
                     stats["deleted"] += 1
             db.execute("UPDATE ingest_jobs SET completed_at=?, status='complete', stats_json=? WHERE id=?", (time.time(), str(stats), job_id))

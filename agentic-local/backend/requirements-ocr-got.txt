@@ -1,0 +1,21 @@
+-r requirements.txt
+# GOT-OCR2_0 (stepfun-ai/GOT-OCR2_0) is a Transformers VLM, not a llama.cpp/GGUF model,
+# so it runs through backend/rag/got_ocr_worker.py as an isolated subprocess instead of
+# being served by llama-server. Heavy (~2-3 GB of wheels) and GPU-hungry: only install
+# this on top of requirements-ocr.txt when OCR_PROVIDER=got_ocr is actually needed.
+#
+# The model card (https://huggingface.co/stepfun-ai/GOT-OCR2_0) pins torch==2.0.1 /
+# transformers==4.37.2, but torch 2.0.1 has no Python 3.12 wheels (this project runs on
+# 3.12), and torch<2.4 was built against NumPy 1.x's C-ABI, which breaks
+# torch.from_numpy()/torchvision preprocessing under this venv's NumPy 2.5.1 (needed by
+# rapidocr-onnxruntime for the other OCR_PROVIDER). torch==2.4.1 has cp312 wheels and
+# proper NumPy 2.x support while staying compatible with transformers==4.37.2.
+torch==2.4.1
+torchvision==0.19.1
+transformers==4.37.2
+tiktoken==0.6.0
+accelerate==0.28.0
+# transformers' dynamic-module loader statically scans modeling_GOT.py for `import X`
+# and requires verovio to be installed even though it's only actually used by the
+# optional render=True path (formula/table rendering to HTML), never by plain OCR.
+verovio==4.3.1

@@ -18,15 +18,22 @@ class Chunk:
     symbol: str = ""
 
 
+# 3 chars/token, not the ~4 of typical English prose: dense multilingual/legal text
+# (accents, punctuation-heavy numbering like "n.o 300/2008") tokenizes closer to 3, and
+# this estimate sizes chunks against RAG_CHUNK_TOKENS to fit the embedding model's
+# ctx-size (512 for bge-small). Underestimating here overflows that limit at embed time.
+_CHARS_PER_TOKEN = 3
+
+
 def estimate_tokens(text: str) -> int:
-    return max(1, (len(text) + 3) // 4)
+    return max(1, (len(text) + _CHARS_PER_TOKEN - 1) // _CHARS_PER_TOKEN)
 
 
 def _window(lines: list[str], start: int, end: int, section: str, target: int, overlap: int, symbol: str = "") -> list[Chunk]:
     chunks: list[Chunk] = []
     cursor = start
-    max_chars = max(100, target * 4)
-    overlap_chars = max(0, overlap * 4)
+    max_chars = max(100, target * _CHARS_PER_TOKEN)
+    overlap_chars = max(0, overlap * _CHARS_PER_TOKEN)
     while cursor <= end:
         size = 0
         stop = cursor

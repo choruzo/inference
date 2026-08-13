@@ -61,7 +61,7 @@ else
   if [[ "${MODEL_ROUTER_ENABLED}" == "1" || "${MODEL_ROUTER_ENABLED}" == "true" ]]; then
     [[ -f "${MODEL_ROUTER_PRESET}" ]] || { echo "No encuentro el preset ${MODEL_ROUTER_PRESET}" >&2; exit 1; }
     echo "Arrancando llama-server en modo router secuencial..."
-    LLAMA_ARGS=(--models-preset "${MODEL_ROUTER_PRESET}" --models-max "${MODEL_ROUTER_MAX_MODELS:-1}" --no-models-autoload --host "${LLAMA_BIND_HOST}" --port "${LLAMA_PORT}")
+    LLAMA_ARGS=(--models-preset "${MODEL_ROUTER_PRESET}" --models-max "${MODEL_ROUTER_MAX_MODELS:-2}" --no-models-autoload --host "${LLAMA_BIND_HOST}" --port "${LLAMA_PORT}")
   else
     echo "Arrancando llama-server en host con build Vulkan..."
     LLAMA_ARGS=(--model "${MODEL_PATH}" --host "${LLAMA_BIND_HOST}" --port "${LLAMA_PORT}" --ctx-size "${LLAMA_CTX_SIZE:-128000}" --parallel "${LLAMA_PARALLEL:-1}" --threads "${LLAMA_THREADS:-8}" --n-gpu-layers "${LLAMA_GPU_LAYERS:-99}")

@@ -10,6 +10,15 @@ from backend.config import EMBEDDINGS_BASE_URL, EMBEDDINGS_BATCH_SIZE, EMBEDDING
 from backend.rag.store import RagStore
 
 
+MAX_EMBED_INPUT_CHARS = 1100
+"""Hard safety cap for a single embed request. Chunking already targets
+RAG_CHUNK_TOKENS against the embedding server's ctx-size, but that's a
+char-count heuristic, not a real tokenizer; content denser than assumed
+(numeric tables, unbroken text) can still exceed the server's ctx-size and
+502/500 the whole batch. Truncating outliers here loses only their tail
+instead of failing the entire indexing job."""
+
+
 class EmbeddingClient:
     def __init__(self, provider: str = EMBEDDINGS_PROVIDER, model: str = EMBEDDINGS_MODEL, base_url: str = EMBEDDINGS_BASE_URL, dimensions: int = EMBEDDINGS_DIMENSIONS) -> None:
         self.provider = provider
@@ -21,6 +30,7 @@ class EmbeddingClient:
         if self.provider == "deterministic":
             return [self._deterministic(text, self.dimensions) for text in texts]
         prefixed = [f"Represent this sentence for searching relevant passages: {text}" if query else text for text in texts]
+        prefixed = [text[:MAX_EMBED_INPUT_CHARS] for text in prefixed]
         with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
             response = client.post(f"{self.base_url}/embeddings", json={"model": self.model, "input": prefixed})
             response.raise_for_status()

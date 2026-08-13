@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import AbstractContextManager
@@ -11,7 +12,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
-from backend.config import EMBEDDINGS_MODEL, LLM_MODEL, MODEL_ROUTER_BASE_URL, MODEL_ROUTER_ENABLED, MODEL_ROUTER_RESTORE_CHAT, OCR_ENABLED, OCR_MODEL, OCR_PROVIDER, RAG_CACHE_DIR, RAG_SOURCES_DIR, WORKSPACE_ROOT
+from backend.config import EMBEDDINGS_MODEL, LLM_MODEL, MODEL_ROUTER_BASE_URL, MODEL_ROUTER_ENABLED, MODEL_ROUTER_RESTORE_CHAT, OCR_ENABLED, OCR_MODEL, OCR_MODEL_DIR, OCR_PROVIDER, RAG_CACHE_DIR, RAG_SOURCES_DIR, WORKSPACE_ROOT
 from backend.rag.store import RagStore
 
 
@@ -30,7 +31,18 @@ def _cache_key(data: bytes, provider: str) -> str:
     return hashlib.sha256(data + provider.encode()).hexdigest()
 
 
-def _router_request(action: str, model: str) -> None:
+def _model_status(model: str) -> str | None:
+    import httpx
+
+    response = httpx.get(f"{MODEL_ROUTER_BASE_URL.rstrip('/')}/v1/models", timeout=30)
+    response.raise_for_status()
+    for entry in response.json().get("data", []):
+        if entry.get("id") == model:
+            return entry.get("status", {}).get("value")
+    return None
+
+
+def _router_request(action: str, model: str, ready_timeout: float = 120.0) -> None:
     import httpx
 
     response = httpx.post(
@@ -44,68 +56,107 @@ def _router_request(action: str, model: str) -> None:
     if response.json().get("success") is not True:
         raise RuntimeError(f"Router could not {action} model {model}")
 
+    # /models/{action} reports success as soon as the request is accepted, not once the
+    # model has actually finished loading/unloading (it stays "loading" for a bit first).
+    # Callers issue requests against `model` right after this returns, so without this
+    # poll they race a still-"loading" model and get a 400 "model is not loaded".
+    expected = "loaded" if action == "load" else "unloaded"
+    deadline = time.monotonic() + ready_timeout
+    status = None
+    while time.monotonic() < deadline:
+        status = _model_status(model)
+        if status in (expected, None):
+            return
+        time.sleep(0.3)
+    raise RuntimeError(f"Router {action} of {model} did not reach '{expected}' within {ready_timeout}s (last status: {status})")
 
-class ModelRouterSession(AbstractContextManager["ModelRouterSession"]):
+
+class GotOcrVramSwap(AbstractContextManager["GotOcrVramSwap"]):
+    """Frees VRAM for the GOT-OCR2_0 subprocess.
+
+    Chat and embeddings are small enough to stay resident together the rest of the time
+    (see the VRAM profile in RAG_IMPLEMENTATION_PLAN.md) and normally run under
+    `--models-max 2` so both stay loaded. Only a GPU-resident VLM like GOT-OCR2_0 needs
+    both unloaded first; RapidOCR/tesseract run on CPU and never need this.
+    """
+
     def __init__(self) -> None:
         self.events: list[dict[str, str]] = []
         self._unloaded: list[str] = []
-        self._embeddings_loaded = False
 
     def _call(self, action: str, model: str) -> None:
         _router_request(action, model)
         self.events.append({"action": action, "model": model})
 
-    def __enter__(self) -> "ModelRouterSession":
+    def __enter__(self) -> "GotOcrVramSwap":
         try:
             for model in dict.fromkeys((LLM_MODEL, EMBEDDINGS_MODEL)):
                 self._call("unload", model)
                 self._unloaded.append(model)
         except Exception:
-            for model in reversed(self._unloaded):
-                try:
-                    self._call("load", model)
-                except Exception:
-                    pass
+            self._restore()
             raise
         return self
 
-    def index_new_embeddings(self, store: RagStore | None = None) -> dict[str, int | str]:
-        self._call("load", EMBEDDINGS_MODEL)
-        self._embeddings_loaded = True
-        from backend.rag.embeddings import index_embeddings
-
-        return index_embeddings(store=store)
+    def _restore(self) -> list[str]:
+        errors: list[str] = []
+        for model in reversed(self._unloaded):
+            if model == LLM_MODEL and not MODEL_ROUTER_RESTORE_CHAT:
+                continue
+            try:
+                self._call("load", model)
+            except Exception as error:
+                errors.append(str(error))
+        return errors
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
-        restoration_errors: list[str] = []
-        if self._embeddings_loaded:
-            try:
-                self._call("unload", EMBEDDINGS_MODEL)
-            except Exception as error:
-                restoration_errors.append(str(error))
-        if MODEL_ROUTER_RESTORE_CHAT:
-            try:
-                self._call("load", LLM_MODEL)
-            except Exception as error:
-                restoration_errors.append(str(error))
-        if restoration_errors and exc_type is None:
-            raise RuntimeError("Model restoration failed: " + "; ".join(restoration_errors))
+        errors = self._restore()
+        if errors and exc_type is None:
+            raise RuntimeError("Failed to restore models after GOT-OCR2_0: " + "; ".join(errors))
         return False
 
 
 def orchestrated_conversion(function):
     @wraps(function)
     def wrapper(*args, **kwargs):
-        if not MODEL_ROUTER_ENABLED:
-            return function(*args, **kwargs)
-        with ModelRouterSession() as session:
-            result = function(*args, **kwargs)
-            store = kwargs.get("store") or (args[1] if len(args) > 1 else None)
-            result["embedding_index"] = session.index_new_embeddings(store)
-            result["orchestration"] = session.events
-            return result
+        result = function(*args, **kwargs)
+        if MODEL_ROUTER_ENABLED:
+            store = kwargs.get("store") or (args[1] if len(args) > 1 else None) or RagStore()
+            from backend.rag.embeddings import index_embeddings
+
+            result["embedding_index"] = index_embeddings(store=store)
+        return result
 
     return wrapper
+
+
+def _got_ocr_image(path: Path) -> str:
+    required = ("config.json", "model.safetensors")
+    missing = [name for name in required if not (OCR_MODEL_DIR / name).exists()]
+    if missing:
+        raise RuntimeError(
+            f"GOT-OCR2_0 weights not found in {OCR_MODEL_DIR} (missing {', '.join(missing)}). "
+            "Run: DOWNLOAD_OCR_MODEL=1 ./download-rag-models.sh, then "
+            "../venv/bin/pip install -r backend/requirements-ocr-got.txt"
+        )
+    worker = Path(__file__).with_name("got_ocr_worker.py")
+
+    def _run() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(worker), str(path), str(OCR_MODEL_DIR)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+
+    if MODEL_ROUTER_ENABLED:
+        with GotOcrVramSwap():
+            result = _run()
+    else:
+        result = _run()
+    if result.returncode != 0:
+        raise RuntimeError(f"GOT-OCR2_0 worker failed: {result.stderr.strip()[-2000:]}")
+    return result.stdout.strip()
 
 
 def _ocr_image(path: Path, provider: str = OCR_PROVIDER) -> str:
@@ -133,8 +184,11 @@ def _ocr_image(path: Path, provider: str = OCR_PROVIDER) -> str:
         result = subprocess.run([executable, str(path), "stdout", "-l", "eng+spa"], check=True, capture_output=True, text=True, timeout=300)
         text = result.stdout.strip()
         boxes = []
+    elif provider == "got_ocr":
+        text = _got_ocr_image(path)
+        boxes = []
     else:
-        raise RuntimeError(f"Unsupported OCR provider: {provider}; use rapidocr/tesseract or run the GOT worker externally")
+        raise RuntimeError(f"Unsupported OCR provider: {provider}; use rapidocr/tesseract/got_ocr")
     cache.write_text(text + "\n", encoding="utf-8")
     cache.with_suffix(".json").write_text(json.dumps({"provider": provider, "boxes": boxes}, ensure_ascii=False), encoding="utf-8")
     return text

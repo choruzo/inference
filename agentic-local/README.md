@@ -88,6 +88,8 @@ Conversion offline a Markdown:
 
 PDF digital usa `pypdf`; paginas sin texto e imagenes usan RapidOCR/ONNX en CPU con cache por hash. El Markdown se guarda en `workspace/.rag_sources`, se registra en `sources` y se indexa. Los pesos GOT-OCR2_0 se descargan como opcion avanzada bajo demanda, pero no quedan residentes en VRAM.
 
+`OCR_PROVIDER=got_ocr` usa `stepfun-ai/GOT-OCR2_0` a traves de `backend/rag/got_ocr_worker.py`, un subproceso aislado (no se importa `torch`/`transformers` en el proceso principal de FastAPI). Requiere los pesos (`DOWNLOAD_OCR_MODEL=1 ./download-rag-models.sh`) y las dependencias pesadas (`../venv/bin/pip install -r backend/requirements-ocr-got.txt`, con `torch>=2.2` para compatibilidad con Python 3.12 en vez del `torch==2.0.1` que fija la model card). Sin ambas cosas falla con un error explicito indicando que instalar/descargar; con `MODEL_ROUTER_ENABLED=true`, y solo para este proveedor, `GotOcrVramSwap` descarga chat y embeddings antes de invocar el worker y los restaura al terminar (ver detalle mas abajo).
+
 Se evaluo Docling para preservar layout complejo, tablas y JSON estructurado. No se incluye en el perfil inicial por su coste de dependencias y memoria en este host; el contrato de Markdown canonico y la tabla `sources` permiten incorporarlo despues como otro conversor sin cambiar el indice.
 
 Evaluacion reproducible:
@@ -108,9 +110,9 @@ La evaluacion genera respuestas RAG reales y calcula por separado retrieval, cit
 - `MODEL_ROUTER_ENABLED`, `MODEL_ROUTER_BASE_URL`, `MODEL_ROUTER_MAX_MODELS`, `MODEL_ROUTER_RESTORE_CHAT`
 - `MAX_RESPONSE_TOKENS`, `MAX_STRUCTURED_TOKENS`, `MAX_CHAT_HISTORY_MESSAGES`, `RESPONSE_TIMEOUT`
 
-Para probar la carga secuencial real, detiene primero cualquier arranque normal y ejecuta `MODEL_ROUTER_ENABLED=true ./start-host-gpu.sh`. El preset `rag-models.ini` usa los alias `local-gguf` y `bge-small-en-v1.5`, arranca chat, mantiene `--models-max 1` y carga embeddings solo durante indexado.
+Para probar la carga secuencial real, detiene primero cualquier arranque normal y ejecuta `MODEL_ROUTER_ENABLED=true ./start-host-gpu.sh`. El preset `rag-models.ini` usa los alias `local-gguf` y `bge-small-en-v1.5`, ambos con `load-on-startup = true` y `--models-max 2`: chat y embeddings conviven cargados a la vez (caben juntos en 4 GB, ver perfil de VRAM en `RAG_IMPLEMENTATION_PLAN.md`), igual que en el modo normal sin router.
 
-En una GTX 1050 de 4 GB, el chat mantiene `LLAMA_CTX_SIZE=128000` y `LLAMA_PARALLEL=1`. Embeddings se sirve en CPU por defecto. OCR solo se carga durante ingesta. Con `MODEL_ROUTER_ENABLED=true`, la conversion descarga chat y embeddings mediante `/models/unload`, carga embeddings para indexar y restaura el chat mediante `/models/load`, incluso si el trabajo falla.
+En una GTX 1050 de 4 GB, el chat mantiene `LLAMA_CTX_SIZE=128000` y `LLAMA_PARALLEL=1`. Embeddings se sirve en CPU por defecto (o convive en GPU bajo el router). Ni RapidOCR/tesseract (CPU) ni la conversion de PDF/DOCX digital tocan el router: chat y embeddings se quedan cargados durante toda la ingesta normal. Solo `OCR_PROVIDER=got_ocr` (GOT-OCR2_0, un VLM que si ocupa VRAM real) dispara `GotOcrVramSwap`: descarga chat y embeddings mediante `/models/unload` justo antes de invocar el worker, y los restaura con `/models/load` al terminar, incluso si el worker falla.
 
 ## Ampliar herramientas
 

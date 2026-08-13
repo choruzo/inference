@@ -17,7 +17,7 @@ from backend.contracts import ChatRequest
 from backend.modes import ChatModes
 from backend.rag.chunking import chunk_text
 from backend.rag.citations import build_citations, validate_citations
-from backend.rag.documents import ModelRouterSession, convert_to_markdown
+from backend.rag.documents import GotOcrVramSwap, convert_to_markdown
 from backend.rag.embeddings import EmbeddingClient, index_embeddings
 from backend.rag.ingest import ingest_documents, reindex_all
 from backend.rag.search import hybrid_search, reciprocal_rank_fusion, vector_search
@@ -88,6 +88,24 @@ def test_incremental_ingestion_fts_and_orphan_cleanup(corpus):
     source.unlink()
     deleted = ingest_documents(docs, store)
     assert deleted["deleted"] == 1 and store.status()["chunks"] == 0
+
+
+def test_cascade_deleting_a_document_leaves_no_orphaned_fts_rows(corpus):
+    _, docs, store = corpus
+    (docs / "manual.md").write_text("# GPU\n\nUsa LLAMA_PARALLEL=1 para ahorrar memoria.\n", encoding="utf-8")
+    ingest_documents(docs, store)
+    with store.connect() as db:
+        doc_id = db.execute("SELECT id FROM documents WHERE path='docs/manual.md'").fetchone()[0]
+        assert db.execute("SELECT count(*) FROM chunk_fts").fetchone()[0] > 0
+        # Simulates any caller that deletes a document directly and relies on
+        # `chunks.document_id ... ON DELETE CASCADE` rather than going through
+        # ingest_documents' own chunk_fts cleanup (e.g. a future delete-document tool,
+        # or manual DB maintenance) -- FK cascade reaches `chunks`, but FTS5 virtual
+        # tables aren't part of SQLite's FK graph, so only the chunk_fts_ad trigger
+        # keeps this consistent.
+        db.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+    with store.connect() as db:
+        assert db.execute("SELECT count(*) FROM chunk_fts").fetchone()[0] == 0
 
 
 def test_full_rebuild_includes_docs_and_canonical_sources(corpus):
@@ -282,31 +300,40 @@ def test_plain_chat_retries_incomplete_thinking_and_keeps_history(monkeypatch: p
     assert "response_format" not in calls[0][1]
 
 
-def test_router_session_unloads_indexes_and_restores_models(monkeypatch: pytest.MonkeyPatch):
-    events = []
-
-    def router_call(action, model):
-        events.append((action, model))
-
-    monkeypatch.setattr("backend.rag.documents._router_request", router_call)
-    monkeypatch.setattr("backend.rag.embeddings.index_embeddings", lambda store=None: {"indexed": 2})
-    with ModelRouterSession() as session:
-        assert session.index_new_embeddings() == {"indexed": 2}
-
-    assert events[0][0] == "unload"
-    assert events[1][0] == "unload"
-    assert ("load", "bge-small-en-v1.5") in events
-    assert events[-1] == ("load", "local-gguf")
-    assert events.count(("unload", "bge-small-en-v1.5")) == 2
-
-
-def test_router_session_restores_chat_after_conversion_failure(monkeypatch: pytest.MonkeyPatch):
+def test_got_ocr_vram_swap_unloads_both_and_restores_both(monkeypatch: pytest.MonkeyPatch):
     events = []
     monkeypatch.setattr("backend.rag.documents._router_request", lambda action, model: events.append((action, model)))
-    with pytest.raises(RuntimeError, match="conversion failed"):
-        with ModelRouterSession():
-            raise RuntimeError("conversion failed")
-    assert events[-1] == ("load", "local-gguf")
+    with GotOcrVramSwap():
+        assert set(events) == {("unload", "local-gguf"), ("unload", "bge-small-en-v1.5")}
+
+    assert events[-2:] == [("load", "bge-small-en-v1.5"), ("load", "local-gguf")]
+
+
+def test_got_ocr_vram_swap_restores_both_after_failure(monkeypatch: pytest.MonkeyPatch):
+    events = []
+    monkeypatch.setattr("backend.rag.documents._router_request", lambda action, model: events.append((action, model)))
+    with pytest.raises(RuntimeError, match="ocr failed"):
+        with GotOcrVramSwap():
+            raise RuntimeError("ocr failed")
+    assert events[-2:] == [("load", "bge-small-en-v1.5"), ("load", "local-gguf")]
+
+
+def test_router_enabled_conversion_without_ocr_never_touches_router(corpus, monkeypatch: pytest.MonkeyPatch):
+    workspace, _, store = corpus
+    events = []
+    monkeypatch.setattr("backend.rag.documents._router_request", lambda action, model: events.append((action, model)))
+    monkeypatch.setattr("backend.rag.documents.MODEL_ROUTER_ENABLED", True)
+    monkeypatch.setattr("backend.rag.embeddings.index_embeddings", lambda store=None: {"indexed": 0})
+
+    document = Document()
+    document.add_heading("Instalacion", level=1)
+    document.add_paragraph("Ejecuta el comando local.")
+    docx_path = workspace / "guide.docx"
+    document.save(docx_path)
+    result = convert_to_markdown(docx_path, store)
+
+    assert events == []
+    assert result["embedding_index"] == {"indexed": 0}
 
 
 

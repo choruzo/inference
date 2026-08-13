@@ -286,7 +286,7 @@ Para evitar desbordar VRAM, usar router de `llama-server` para cargar modelos ba
 ```bash
 llama-server \
   --models-dir ./models \
-  --models-max 1 \
+  --models-max 2 \
   --no-models-autoload \
   --host 127.0.0.1 \
   --port 8080
@@ -294,12 +294,10 @@ llama-server \
 
 Regla:
 
-- `--models-max 1` fuerza que solo haya un modelo cargado cuando se use el router compartido.
-- Durante chat normal, cargar solo el modelo principal.
-- Durante generacion de embeddings, descargar el chat si se necesita garantizar VRAM libre, cargar solo embeddings, procesar batch y descargar embeddings.
-- Durante OCR de ingesta, descargar siempre chat y embeddings; cargar solo el modelo OCR; convertir PDF/Word/imagenes a Markdown; descargar OCR al terminar.
+- Chat y embeddings caben juntos en VRAM (ver "Perfil de VRAM medido" mas arriba) y se quedan cargados a la vez, `--models-max 2`, igual en modo router que en modo normal (dos procesos `llama-server` separados). No hay descarga/recarga por cada consulta ni por cada job de indexado de texto/embeddings.
+- Durante OCR de ingesta con un modelo que si ocupa VRAM real (GOT-OCR2_0), descargar chat y embeddings, cargar solo el modelo OCR, convertir PDF/Word/imagenes a Markdown, y restaurar chat y embeddings al terminar (incluso si el job falla). RapidOCR/tesseract corren en CPU y no necesitan esta descarga.
 - OCR nunca debe ejecutarse durante una conversacion normal ni quedar como modelo residente.
-- Reranker grande sigue la misma regla que OCR: carga bajo demanda, job corto, descarga.
+- Reranker grande sigue la misma regla que GOT-OCR2_0: carga bajo demanda, job corto, descarga.
 
 Alternativa con presets:
 
