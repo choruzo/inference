@@ -103,6 +103,39 @@ RERANK_RESPONSE_FORMAT = {
 }
 
 
+def _rag_answer_response_format(source_count: int) -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "rag_answer",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "paragraphs": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "source_ids": {
+                                    "type": "array",
+                                    "items": {"type": "integer", "enum": list(range(1, source_count + 1))},
+                                    "uniqueItems": True,
+                                },
+                            },
+                            "required": ["text", "source_ids"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["paragraphs"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _extract_json(text: str) -> dict[str, Any] | None:
     stripped = text.strip()
     cleaned = _strip_thinking(stripped)
@@ -187,9 +220,43 @@ def _normalize_tool_args(tool_name: str, args: dict[str, Any]) -> dict[str, Any]
     return normalized
 
 
+def _has_substantive_text(text: str) -> bool:
+    without_markers = re.sub(r"\[\d+\]|END_OF_ANSWER", " ", text)
+    words = re.findall(r"[^\W\d_]+", without_markers, flags=re.UNICODE)
+    return bool(words) and sum(len(word) for word in words) >= 4
+
+
 def _paragraphs_are_cited(answer: str) -> bool:
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", answer) if part.strip()]
-    return bool(paragraphs) and all(re.search(r"\[\d+\]", paragraph) or paragraph.lower().startswith("inferencia:") for paragraph in paragraphs)
+    return bool(paragraphs) and all(
+        _has_substantive_text(paragraph)
+        and (re.search(r"\[\d+\]", paragraph) or paragraph.lower().startswith("inferencia:"))
+        for paragraph in paragraphs
+    )
+
+
+def _parse_rag_answer(raw: str, source_count: int) -> tuple[str, set[int]]:
+    parsed = _extract_json(raw)
+    paragraphs = parsed.get("paragraphs") if parsed else None
+    if not isinstance(paragraphs, list):
+        return "", set()
+
+    rendered: list[str] = []
+    referenced: set[int] = set()
+    for paragraph in paragraphs:
+        if not isinstance(paragraph, dict):
+            continue
+        text = re.sub(r"\s*\[\d+\]", "", str(paragraph.get("text", ""))).strip()
+        raw_ids = paragraph.get("source_ids")
+        if not isinstance(raw_ids, list):
+            continue
+        source_ids = sorted({value for value in raw_ids if isinstance(value, int) and 1 <= value <= source_count})
+        if not source_ids or not _has_substantive_text(text):
+            continue
+        references = "".join(f"[{value}]" for value in source_ids)
+        rendered.append(f"{text} {references}")
+        referenced.update(source_ids)
+    return "\n\n".join(rendered), referenced
 
 
 class LocalAgent:
@@ -350,50 +417,52 @@ class LocalAgent:
         trace.append({"type": "rerank", "event": "ranking", "data": rank_trace})
         context = context_with_citations(ranked)
         prompt = (
-            "Responde exclusivamente con evidencia de las fuentes. Cita cada parrafo factual con [1], [2], etc. "
-            "Separa claramente cualquier inferencia. Si la evidencia no basta, di exactamente: No lo encuentro en la documentacion indexada.\n\n"
-            "Despues de la respuesta, escribe END_OF_ANSWER en una linea separada.\n\n"
+            "Usa exclusivamente las FUENTES para responder. Devuelve el JSON solicitado: paragraphs contiene objetos "
+            "con un texto factual y los source_ids que lo respaldan. En text responde directamente a la pregunta, "
+            "resume las medidas concretas y no menciones las fuentes ni el proceso. No escribas citas dentro de text. "
+            "Si las fuentes no permiten responder, devuelve paragraphs vacio.\n\n"
             f"Pregunta: {user_message}\n\n{context}"
         )
-        messages = [{"role": "system", "content": "Eres un asistente RAG riguroso. Responde en el idioma de la pregunta y no inventes datos."}]
+        messages = [{"role": "system", "content": "Eres un asistente RAG riguroso. Redacta respuestas breves en el idioma de la pregunta y no inventes datos."}]
         messages.extend(item for item in (history or [])[-MAX_CHAT_HISTORY_MESSAGES:] if item.get("role") in {"user", "assistant"} and item.get("content"))
         messages.append({"role": "user", "content": prompt})
+        raw_outputs: list[str] = []
         try:
-            raw = await self._complete_text(messages, max_tokens=MAX_RESPONSE_TOKENS)
-            parsed = _extract_json(raw)
-            answer = str(parsed["final"]) if parsed and "final" in parsed else _strip_thinking(raw)
-            reasoning = _thinking(raw) if modes.reasoning_panel else None
-            if "END_OF_ANSWER" not in answer:
+            raw = await self._complete_text(
+                messages,
+                max_tokens=MAX_STRUCTURED_TOKENS,
+                response_format=_rag_answer_response_format(len(ranked)),
+            )
+            raw_outputs.append(raw)
+            answer, referenced = _parse_rag_answer(raw, len(ranked))
+            if not answer:
                 retry_prompt = (
-                    "Responde con una sola frase basada en FUENTE 1 e incluye la cita [1]. Despues escribe END_OF_ANSWER "
-                    "en una linea separada. No describas tu proceso.\n\n"
+                    "Devuelve un parrafo factual breve en el JSON solicitado, usando solo la fuente. "
+                    "Pon 1 en source_ids y no incluyas razonamiento. Si no responde la pregunta, devuelve paragraphs vacio.\n\n"
                     f"Pregunta: {user_message}\n\n{context_with_citations(ranked[:1])}"
                 )
                 raw = await self._complete_text(
-                    [{"role": "system", "content": "Da una respuesta factual, breve y citada."}, {"role": "user", "content": retry_prompt}],
-                    max_tokens=MAX_RESPONSE_TOKENS,
+                    [{"role": "system", "content": "Extrae una respuesta breve de la fuente y devuelve solo JSON."}, {"role": "user", "content": retry_prompt}],
+                    max_tokens=MAX_STRUCTURED_TOKENS,
+                    response_format=_rag_answer_response_format(1),
                 )
-                answer = _strip_thinking(raw)
-                reasoning = _thinking(raw) if modes.reasoning_panel else None
-            if "END_OF_ANSWER" not in answer:
-                return self._response("La generacion RAG no termino correctamente.", trace, "generation_incomplete")
-            answer = answer.split("END_OF_ANSWER", 1)[0].strip()
+                raw_outputs.append(raw)
+                answer, referenced = _parse_rag_answer(raw, 1)
         except httpx.TimeoutException:
             return self._response("El modelo local ha agotado el tiempo de respuesta.", trace, "llm_timeout")
         except httpx.HTTPError as exc:
             return self._response(f"Error llamando al servidor LLM: {type(exc).__name__}: {exc}", trace, "llm_error")
+        if modes.reasoning_panel:
+            trace.append({"type": "model", "event": "rag_completion", "data": {"attempts": raw_outputs}})
+        if not answer:
+            return self._response("El modelo no produjo una respuesta RAG completa.", trace, "generation_incomplete")
         citations = build_citations(ranked)
-        if not answer or not _paragraphs_are_cited(answer):
-            answer = "No lo encuentro en la documentacion indexada."
-            citations = []
-        else:
-            referenced = {int(value) for value in re.findall(r"\[(\d+)\]", answer)}
-            citations = [citation for citation in citations if citation.id in referenced]
-            if not citations or not validate_citations(citations, self.rag_store):
-                return self._response("No lo encuentro en la documentacion indexada.", trace, "invalid_citations")
+        citations = [citation for citation in citations if citation.id in referenced]
+        if not citations or not validate_citations(citations, self.rag_store) or not _paragraphs_are_cited(answer):
+            return self._response("El modelo produjo una respuesta RAG sin respaldo valido.", trace, "invalid_citations")
         retrieval_chunks = [RetrievalChunk(chunk_id=str(item["id"]), path=str(item["path"]), title=str(item.get("title", "")), section=str(item.get("section", "")), start_line=int(item["start_line"]), end_line=int(item["end_line"]), content=str(item["content"]), score=float(item["score"]), reasons=list(item.get("reasons", []))) for item in ranked]
         retrieval = RetrievalResult(query=user_message, chunks=retrieval_chunks, reranked=[str(item["id"]) for item in ranked]).model_dump()
-        return self._response(answer, trace if modes.reasoning_panel else [], "final", citations=[item.model_dump() for item in citations], reasoning=reasoning, retrieval=retrieval)
+        return self._response(answer, trace if modes.reasoning_panel else [], "final", citations=[item.model_dump() for item in citations], retrieval=retrieval)
 
     async def _complete(self, messages: list[dict[str, str]], force_tool: bool = False) -> str:
         response = await self.client.post(

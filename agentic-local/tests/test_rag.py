@@ -12,7 +12,7 @@ from docx import Document
 from pypdf import PdfWriter
 from pydantic import ValidationError
 
-from backend.agent import LocalAgent, _paragraphs_are_cited, _strip_thinking, _thinking
+from backend.agent import LocalAgent, _paragraphs_are_cited, _parse_rag_answer, _strip_thinking, _thinking
 from backend.contracts import ChatRequest
 from backend.modes import ChatModes
 from backend.rag.chunking import chunk_text
@@ -55,6 +55,23 @@ def test_unclosed_thinking_is_never_exposed_as_answer():
     assert _thinking(raw) == "analisis con una cita [1] sin terminar"
     assert _paragraphs_are_cited("Hecho [1].\n\nInferencia: posible conclusion.")
     assert not _paragraphs_are_cited("Hecho [1].\n\nOtro hecho sin cita.")
+    assert not _paragraphs_are_cited("[1][2][3][4]")
+
+
+def test_structured_rag_answer_requires_text_and_valid_source_ids():
+    raw = json.dumps(
+        {
+            "paragraphs": [
+                {"text": "La Union establece normas armonizadas.", "source_ids": [2, 1, 2]},
+                {"text": "[3]", "source_ids": [3]},
+                {"text": "Fuente inexistente", "source_ids": [9]},
+            ]
+        }
+    )
+    answer, referenced = _parse_rag_answer(raw, 3)
+    assert answer == "La Union establece normas armonizadas. [1][2]"
+    assert referenced == {1, 2}
+    assert _parse_rag_answer('{"paragraphs": []}', 3) == ("", set())
 
 
 def test_chunking_preserves_sections_symbols_and_lines(tmp_path: Path):

@@ -1,171 +1,35 @@
-0.00.084.071 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
-0.00.094.660 I srv   load_models: Loaded 0 cached model presets
-0.00.094.988 I srv   load_models: Loaded 2 custom model presets from /home/javier/Documentos/inference/agentic-local/rag-models.ini
-0.00.095.084 I srv    operator(): Available models (2) (*: custom preset)
-0.00.095.088 I srv    operator():   * bge-small-en-v1.5
-0.00.095.104 I srv    operator():   * local-gguf
-0.00.095.107 I srv   load_models: (startup) loading model bge-small-en-v1.5
-0.00.095.168 I srv          load: spawning server instance with name=bge-small-en-v1.5 on port 36483
-0.00.095.180 I srv          load: spawning server instance with args:
-0.00.095.181 I srv          load:   /home/javier/Documentos/inference/llama.cpp/build-vulkan/bin/llama-server
-0.00.095.181 I srv          load:   --embeddings
-0.00.095.181 I srv          load:   --host
-0.00.095.181 I srv          load:   127.0.0.1
-0.00.095.181 I srv          load:   --pooling
-0.00.095.182 I srv          load:   cls
-0.00.095.182 I srv          load:   --port
-0.00.095.182 I srv          load:   36483
-0.00.095.182 I srv          load:   --alias
-0.00.095.182 I srv          load:   bge-small-en-v1.5
-0.00.095.182 I srv          load:   --batch-size
-0.00.095.183 I srv          load:   512
-0.00.095.183 I srv          load:   --ctx-size
-0.00.095.183 I srv          load:   512
-0.00.095.183 I srv          load:   --model
-0.00.095.183 I srv          load:   ../model/bge-small-en-v1.5-Q8_0.gguf
-0.00.095.184 I srv          load:   --n-gpu-layers
-0.00.095.184 I srv          load:   0
-0.00.095.184 I srv          load:   --threads
-0.00.095.184 I srv          load:   4
-0.00.095.502 I srv   load_models: (startup) loading model local-gguf
-0.00.095.543 I srv          load: spawning server instance with name=local-gguf on port 36677
-0.00.095.578 I srv          load: spawning server instance with args:
-0.00.095.579 I srv          load:   /home/javier/Documentos/inference/llama.cpp/build-vulkan/bin/llama-server
-0.00.095.579 I srv          load:   --host
-0.00.095.579 I srv          load:   127.0.0.1
-0.00.095.580 I srv          load:   --port
-0.00.095.580 I srv          load:   36677
-0.00.095.580 I srv          load:   --alias
-0.00.095.581 I srv          load:   local-gguf
-0.00.095.581 I srv          load:   --ctx-size
-0.00.095.581 I srv          load:   128000
-0.00.095.582 I srv          load:   --model
-0.00.095.582 I srv          load:   ../model/LFM2.5-1.2B-Thinking-Q4_K_M.gguf
-0.00.095.583 I srv          load:   --n-gpu-layers
-0.00.095.583 I srv          load:   99
-0.00.095.583 I srv          load:   --parallel
-0.00.095.584 I srv          load:   1
-0.00.095.584 I srv          load:   --threads
-0.00.095.585 I srv          load:   8
-0.00.096.237 W srv  llama_server: -----------------
-0.00.096.242 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
-0.00.096.242 W srv  llama_server: this can be a security risk (cross-origin attacks)
-0.00.096.243 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
-0.00.096.243 W srv  llama_server: -----------------
-0.00.096.263 W srv  llama_server: -----------------
-0.00.096.263 W srv  llama_server: the following feature(s) are enabled:
-0.00.096.264 W srv  llama_server:     router mode
-0.00.096.264 W srv  llama_server: do not expose the server to untrusted environments
-0.00.096.265 W srv  llama_server: -----------------
-0.00.096.266 I srv  llama_server: starting server in router mode. models will be automatically loaded on-demand
-0.00.097.468 I srv  llama_server: listening on http://0.0.0.0:8080
-[36483] 0.00.073.805 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
-[36677] 0.00.074.934 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
-[36483] 0.00.074.959 W srv  llama_server: -----------------
-[36483] 0.00.074.968 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
-[36483] 0.00.074.968 W srv  llama_server: this can be a security risk (cross-origin attacks)
-[36483] 0.00.074.969 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
-[36483] 0.00.074.969 W srv  llama_server: -----------------
-[36677] 0.00.076.029 W srv  llama_server: -----------------
-[36677] 0.00.076.036 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
-[36677] 0.00.076.036 W srv  llama_server: this can be a security risk (cross-origin attacks)
-[36677] 0.00.076.037 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
-[36677] 0.00.076.037 W srv  llama_server: -----------------
-[36483] cmd_child_to_router:state:{"state":"loading","payload":{"stages":["text_model"],"current":"text_model","value":0.0}}
-[36483] 0.00.076.479 I srv    load_model: loading model '../model/bge-small-en-v1.5-Q8_0.gguf'
-[36677] cmd_child_to_router:state:{"state":"loading","payload":{"stages":["text_model"],"current":"text_model","value":0.0}}
-[36677] 0.00.077.472 I srv    load_model: loading model '../model/LFM2.5-1.2B-Thinking-Q4_K_M.gguf'
-[36483] 0.00.158.579 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
-[36483] cmd_child_to_router:state:{"state":"loading","payload":{"stages":["text_model"],"current":"text_model","value":1.0}}
-[36483] 0.00.175.797 W srv    load_model: speculative decoding not supported by this context
-[36483] 0.00.175.804 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 512, kv_unified = 'true'
-[36483] 0.00.178.855 I srv  llama_server: model loaded
-[36483] 0.00.178.862 I srv  llama_server: listening on http://127.0.0.1:36483
-[36483] 0.00.178.952 I srv    operator(): child server monitoring thread started, waiting for EOF on stdin...
-[36483] cmd_child_to_router:state:{"state":"ready","payload":{"id":"bge-small-en-v1.5","aliases":["bge-small-en-v1.5"],"tags":[],"object":"model","created":1786602328,"owned_by":"llamacpp","meta":{"vocab_type":3,"n_vocab":30522,"n_ctx":512,"n_ctx_train":512,"n_embd":384,"n_params":33212160,"size":36045936,"ftype":"Q8_0"}}}
-[36677] cmd_child_to_router:state:{"state":"loading","payload":{"stages":["text_model"],"current":"text_model","value":0.0}}
-[36677] cmd_child_to_router:state:{"state":"loading","payload":{"stages":["text_model"],"current":"text_model","value":1.0}}
-[36677] 0.03.875.283 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 128000, kv_unified = 'false'
-[36677] 0.03.878.918 I srv  llama_server: model loaded
-[36677] 0.03.878.943 I srv  llama_server: listening on http://127.0.0.1:36677
-[36677] 0.03.879.090 I srv    operator(): child server monitoring thread started, waiting for EOF on stdin...
-[36677] cmd_child_to_router:state:{"state":"ready","payload":{"id":"local-gguf","aliases":["local-gguf"],"tags":[],"object":"model","created":1786602332,"owned_by":"llamacpp","meta":{"vocab_type":2,"n_vocab":65536,"n_ctx":128000,"n_ctx_train":128000,"n_embd":2048,"n_params":1170340608,"size":728509440,"ftype":"Q4_K - Medium"}}}
-0.58.065.807 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
-[36483] 0.57.966.097 I slot get_availabl: id  3 | task -1 | selected slot by LRU, t_last = -1
-[36483] 0.57.966.124 I slot launch_slot_: id  3 | task 0 | processing task, is_child = 0
-[36483] 0.57.972.470 I slot      release: id  3 | task 0 | stop processing: n_tokens = 12, truncated = 0
-3.10.930.116 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
-[36483] 3.10.829.199 I slot get_availabl: id  2 | task -1 | selected slot by LRU, t_last = -1
-[36483] 3.10.829.205 I slot launch_slot_: id  2 | task 2 | processing task, is_child = 0
-[36483] 3.10.841.270 I slot      release: id  2 | task 2 | stop processing: n_tokens = 21, truncated = 0
-3.11.043.072 I srv  proxy_reques: proxying request to model local-gguf on port 36677
-[36677] 3.10.946.189 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
-[36677] 3.10.946.297 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
-[36677] 3.15.994.950 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    908, progress = 0.64, t =   5.05 s / 179.85 tokens per second
-[36677] 3.19.107.997 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   1420, progress = 1.00, t =   8.16 s / 173.98 tokens per second
-[36677] 3.25.127.145 I slot print_timing: id  0 | task 0 | n_decoded =    224, tg =  74.58 t/s, tg_3s =  74.58 t/s
-[36677] 3.28.139.965 I slot print_timing: id  0 | task 0 | n_decoded =    446, tg =  74.13 t/s, tg_3s =  73.69 t/s
-[36677] 3.31.151.864 I slot print_timing: id  0 | task 0 | n_decoded =    667, tg =  73.88 t/s, tg_3s =  73.38 t/s
-[36677] 3.34.162.768 I slot print_timing: id  0 | task 0 | n_decoded =    887, tg =  73.68 t/s, tg_3s =  73.07 t/s
-[36677] 3.37.175.861 I slot print_timing: id  0 | task 0 | n_decoded =   1106, tg =  73.48 t/s, tg_3s =  72.68 t/s
-[36677] 3.40.182.832 I slot print_timing: id  0 | task 0 | n_decoded =   1323, tg =  73.26 t/s, tg_3s =  72.17 t/s
-[36677] 3.43.192.924 I slot print_timing: id  0 | task 0 | n_decoded =   1539, tg =  73.05 t/s, tg_3s =  71.76 t/s
-[36677] 3.45.825.301 I slot print_timing: id  0 | task 0 | prompt eval time =   11177.49 ms /  1424 tokens (    7.85 ms per token,   127.40 tokens per second)
-[36677] 3.45.825.308 I slot print_timing: id  0 | task 0 |        eval time =   23701.47 ms /  1727 tokens (   13.72 ms per token,    72.86 tokens per second)
-[36677] 3.45.825.309 I slot print_timing: id  0 | task 0 |       total time =   34878.96 ms /  3151 tokens
-[36677] 3.45.825.332 I slot print_timing: id  0 | task 0 |    graphs reused =       1719
-[36677] 3.45.825.490 I slot      release: id  0 | task 0 | stop processing: n_tokens = 3150, truncated = 0
-4.03.533.068 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
-[36483] 4.03.432.154 I slot get_availabl: id  2 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 1.000
-[36483] 4.03.432.161 I slot launch_slot_: id  2 | task 4 | processing task, is_child = 0
-[36483] 4.03.443.986 I slot      release: id  2 | task 4 | stop processing: n_tokens = 21, truncated = 0
-4.03.648.442 I srv  proxy_reques: proxying request to model local-gguf on port 36677
-[36677] 4.03.553.181 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.452
-[36677] 4.03.575.033 I slot launch_slot_: id  0 | task 1730 | processing task, is_child = 0
-[36677] 4.06.755.993 I slot print_timing: id  0 | task 1730 | n_decoded =    221, tg =  73.62 t/s, tg_3s =  73.62 t/s
-[36677] 4.09.765.289 I slot print_timing: id  0 | task 1730 | n_decoded =    443, tg =  73.69 t/s, tg_3s =  73.77 t/s
-[36677] 4.12.771.284 I slot print_timing: id  0 | task 1730 | n_decoded =    663, tg =  73.52 t/s, tg_3s =  73.19 t/s
-[36677] 4.15.776.997 I slot print_timing: id  0 | task 1730 | n_decoded =    882, tg =  73.36 t/s, tg_3s =  72.86 t/s
-[36677] 4.18.784.756 I slot print_timing: id  0 | task 1730 | n_decoded =   1100, tg =  73.18 t/s, tg_3s =  72.48 t/s
-[36677] 4.21.796.741 I slot print_timing: id  0 | task 1730 | n_decoded =   1317, tg =  72.99 t/s, tg_3s =  72.05 t/s
-[36677] 4.24.799.992 I slot print_timing: id  0 | task 1730 | n_decoded =   1532, tg =  72.79 t/s, tg_3s =  71.59 t/s
-[36677] 4.27.535.819 I slot print_timing: id  0 | task 1730 | prompt eval time =     178.88 ms /     4 tokens (   44.72 ms per token,    22.36 tokens per second)
-[36677] 4.27.535.824 I slot print_timing: id  0 | task 1730 |        eval time =   23781.88 ms /  1727 tokens (   13.77 ms per token,    72.62 tokens per second)
-[36677] 4.27.535.824 I slot print_timing: id  0 | task 1730 |       total time =   23960.76 ms /  1731 tokens
-[36677] 4.27.535.825 I slot print_timing: id  0 | task 1730 |    graphs reused =       3437
-[36677] 4.27.536.052 I slot      release: id  0 | task 1730 | stop processing: n_tokens = 3150, truncated = 0
-8.09.952.622 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
-[36483] 8.09.851.633 I slot get_availabl: id  2 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 1.000
-[36483] 8.09.851.657 I slot launch_slot_: id  2 | task 6 | processing task, is_child = 0
-[36483] 8.09.863.123 I slot      release: id  2 | task 6 | stop processing: n_tokens = 21, truncated = 0
-8.10.044.662 I srv  proxy_reques: proxying request to model local-gguf on port 36677
-[36677] 8.09.949.015 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 90873266087
-[36677] 8.09.949.486 I slot launch_slot_: id  0 | task 3458 | processing task, is_child = 0
-[36677] 8.13.271.775 I slot print_timing: id  0 | task 3458 | prompt processing, n_tokens =    922, progress = 0.64, t =   3.32 s / 277.52 tokens per second
-[36677] 8.16.272.227 I slot print_timing: id  0 | task 3458 | prompt processing, n_tokens =   1434, progress = 1.00, t =   6.32 s / 226.80 tokens per second
-[36677] 8.22.418.093 I slot print_timing: id  0 | task 3458 | n_decoded =    224, tg =  74.62 t/s, tg_3s =  74.62 t/s
-[36677] 8.25.429.527 I slot print_timing: id  0 | task 3458 | n_decoded =    446, tg =  74.17 t/s, tg_3s =  73.72 t/s
-[36677] 8.28.441.256 I slot print_timing: id  0 | task 3458 | n_decoded =    667, tg =  73.90 t/s, tg_3s =  73.38 t/s
-[36677] 8.31.441.523 I slot print_timing: id  0 | task 3458 | n_decoded =    886, tg =  73.68 t/s, tg_3s =  72.99 t/s
-[36677] 8.34.442.709 I slot print_timing: id  0 | task 3458 | n_decoded =   1104, tg =  73.47 t/s, tg_3s =  72.64 t/s
-[36677] 8.37.453.134 I slot print_timing: id  0 | task 3458 | n_decoded =   1321, tg =  73.24 t/s, tg_3s =  72.08 t/s
-[36677] 8.40.465.838 I slot print_timing: id  0 | task 3458 | n_decoded =   1537, tg =  73.02 t/s, tg_3s =  71.70 t/s
-[36677] 8.43.477.847 I slot print_timing: id  0 | task 3458 | n_decoded =   1752, tg =  72.81 t/s, tg_3s =  71.38 t/s
-[36677] 8.46.489.410 I slot print_timing: id  0 | task 3458 | n_decoded =   1966, tg =  72.62 t/s, tg_3s =  71.06 t/s
-[36677] 8.49.500.487 I slot print_timing: id  0 | task 3458 | n_decoded =   2179, tg =  72.43 t/s, tg_3s =  70.74 t/s
-[36677] 8.49.941.171 I slot print_timing: id  0 | task 3458 | prompt eval time =    9466.55 ms /  1438 tokens (    6.58 ms per token,   151.90 tokens per second)
-[36677] 8.49.941.175 I slot print_timing: id  0 | task 3458 |        eval time =   30525.10 ms /  2210 tokens (   13.81 ms per token,    72.40 tokens per second)
-[36677] 8.49.941.177 I slot print_timing: id  0 | task 3458 |       total time =   39991.65 ms /  3648 tokens
-[36677] 8.49.941.177 I slot print_timing: id  0 | task 3458 |    graphs reused =       5636
-[36677] 8.49.941.342 I slot      release: id  0 | task 3458 | stop processing: n_tokens = 3647, truncated = 0
-23.33.102.128 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
-[36483] 23.33.001.193 I slot get_availabl: id  2 | task -1 | selected slot by LCP similarity, f_sim_best = 0.167 (> 0.100 thold), f_keep = 0.048
-[36483] 23.33.001.201 I slot launch_slot_: id  2 | task 8 | processing task, is_child = 0
-[36483] 23.33.001.205 I slot get_availabl: id  1 | task -1 | selected slot by LRU, t_last = -1
-[36483] 23.33.001.207 I slot launch_slot_: id  1 | task 9 | processing task, is_child = 0
-[36483] 23.33.010.036 I slot      release: id  1 | task 9 | stop processing: n_tokens = 12, truncated = 0
-[36483] 23.33.010.046 I slot      release: id  2 | task 8 | stop processing: n_tokens = 6, truncated = 0
-24.24.453.964 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
-[36483] 24.24.352.975 I slot get_availabl: id  1 | task -1 | selected slot by LCP similarity, f_sim_best = 0.182 (> 0.100 thold), f_keep = 0.167
-[36483] 24.24.352.982 I slot launch_slot_: id  1 | task 11 | processing task, is_child = 0
-[36483] 24.24.359.518 I slot      release: id  1 | task 11 | stop processing: n_tokens = 11, truncated = 0
+0.00.081.017 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.082.823 W srv  llama_server: -----------------
+0.00.082.826 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.082.826 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.082.827 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.082.827 W srv  llama_server: -----------------
+0.00.084.147 I srv    load_model: loading model '/home/javier/Documentos/inference/model/LFM2.5-1.2B-Thinking-Q4_K_M.gguf'
+0.00.951.520 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 128000, kv_unified = 'false'
+0.00.955.220 I srv  llama_server: model loaded
+0.00.955.228 I srv  llama_server: listening on http://0.0.0.0:8080
+0.10.357.298 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.10.357.529 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.16.523.590 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   1312, progress = 0.72, t =   6.17 s / 212.78 tokens per second
+0.19.154.007 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   1824, progress = 1.00, t =   8.80 s / 207.36 tokens per second
+0.23.125.506 I slot print_timing: id  0 | task 0 | prompt eval time =   11494.74 ms /  1828 tokens (    6.29 ms per token,   159.03 tokens per second)
+0.23.125.512 I slot print_timing: id  0 | task 0 |        eval time =    1273.21 ms /    97 tokens (   13.13 ms per token,    76.19 tokens per second)
+0.23.125.513 I slot print_timing: id  0 | task 0 |       total time =   12767.95 ms /  1925 tokens
+0.23.125.539 I slot print_timing: id  0 | task 0 |    graphs reused =         96
+0.23.125.858 I slot      release: id  0 | task 0 | stop processing: n_tokens = 1924, truncated = 0
+3.09.298.746 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 8684210155
+3.09.325.246 I slot launch_slot_: id  0 | task 100 | processing task, is_child = 0
+3.15.536.798 I slot print_timing: id  0 | task 100 | prompt processing, n_tokens =   1257, progress = 0.71, t =   6.21 s / 202.37 tokens per second
+3.17.094.307 I slot print_timing: id  0 | task 100 | prompt processing, n_tokens =   1769, progress = 1.00, t =   7.77 s / 227.70 tokens per second
+3.20.899.397 I slot print_timing: id  0 | task 100 | prompt eval time =   10868.79 ms /  1773 tokens (    6.13 ms per token,   163.13 tokens per second)
+3.20.899.402 I slot print_timing: id  0 | task 100 |        eval time =     705.32 ms /    55 tokens (   12.82 ms per token,    77.98 tokens per second)
+3.20.899.421 I slot print_timing: id  0 | task 100 |       total time =   11574.11 ms /  1828 tokens
+3.20.899.422 I slot print_timing: id  0 | task 100 |    graphs reused =        148
+3.20.899.606 I slot      release: id  0 | task 100 | stop processing: n_tokens = 1827, truncated = 0
+3.20.903.866 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 8861983900
+3.20.922.697 I slot launch_slot_: id  0 | task 158 | processing task, is_child = 0
+3.24.080.799 I slot print_timing: id  0 | task 158 | prompt eval time =    3041.97 ms /   511 tokens (    5.95 ms per token,   167.98 tokens per second)
+3.24.080.804 I slot print_timing: id  0 | task 158 |        eval time =     116.10 ms /     9 tokens (   12.90 ms per token,    77.52 tokens per second)
+3.24.080.823 I slot print_timing: id  0 | task 158 |       total time =    3158.07 ms /   520 tokens
+3.24.080.824 I slot print_timing: id  0 | task 158 |    graphs reused =        154
+3.24.080.927 I slot      release: id  0 | task 158 | stop processing: n_tokens = 519, truncated = 0
