@@ -5,19 +5,19 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="${APP_DIR}/logs/llama-server.pid"
 EMBEDDINGS_PID_FILE="${APP_DIR}/logs/embeddings-server.pid"
 
-docker_compose_stop_app() {
+docker_compose_stop_services() {
   if docker compose version >/dev/null 2>&1 && docker ps >/dev/null 2>&1; then
-    docker compose stop app >/dev/null
+    docker compose --profile web-search stop app searxng >/dev/null
     return
   fi
 
   if sudo -n true >/dev/null 2>&1 && sudo -n docker ps >/dev/null 2>&1; then
-    sudo -n docker compose stop app >/dev/null
+    sudo -n docker compose --profile web-search stop app searxng >/dev/null
     return
   fi
 
   if [[ -t 0 ]]; then
-    sudo docker compose stop app >/dev/null
+    sudo docker compose --profile web-search stop app searxng >/dev/null
     return
   fi
 
@@ -25,7 +25,7 @@ docker_compose_stop_app() {
 }
 
 cd "${APP_DIR}"
-docker_compose_stop_app
+docker_compose_stop_services
 
 if [[ -f "${PID_FILE}" ]]; then
   PID="$(cat "${PID_FILE}")"
@@ -42,4 +42,4 @@ if [[ -f "${EMBEDDINGS_PID_FILE}" ]]; then
   rm -f "${EMBEDDINGS_PID_FILE}"
 fi
 
-echo "app parada"
+echo "app y SearXNG parados"

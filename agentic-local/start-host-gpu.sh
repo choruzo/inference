@@ -13,6 +13,7 @@ LLAMA_PORT="${LLAMA_PORT:-8080}"
 EMBEDDINGS_PORT="${EMBEDDINGS_PORT:-8091}"
 MODEL_ROUTER_ENABLED="${MODEL_ROUTER_ENABLED:-false}"
 MODEL_ROUTER_PRESET="${MODEL_ROUTER_PRESET:-${APP_DIR}/rag-models.ini}"
+START_SEARXNG="${START_SEARXNG:-1}"
 if [[ "${MODEL_ROUTER_ENABLED}" == "1" || "${MODEL_ROUTER_ENABLED}" == "true" ]]; then
   EMBEDDINGS_EFFECTIVE_PORT="${LLAMA_PORT}"
 else
@@ -87,12 +88,30 @@ if [[ "${START_EMBEDDINGS:-1}" == "1" && "${EMBEDDINGS_EFFECTIVE_PORT}" != "${LL
   EMBEDDINGS_PORT="${EMBEDDINGS_PORT}" "${APP_DIR}/start-embeddings.sh"
 fi
 
-echo "Arrancando app Docker..."
+echo "Arrancando servicios Docker..."
 cd "${APP_DIR}"
-docker_compose up -d --build app
+if [[ "${START_SEARXNG}" == "1" || "${START_SEARXNG}" == "true" ]]; then
+  docker_compose --profile web-search up -d --build app searxng
+  echo "Esperando a que SearXNG responda..."
+  for _ in $(seq 1 60); do
+    if curl -fsS "http://127.0.0.1:8888/healthz" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  if ! curl -fsS "http://127.0.0.1:8888/healthz" >/dev/null 2>&1; then
+    echo "SearXNG no respondio en http://127.0.0.1:8888/healthz" >&2
+    exit 1
+  fi
+else
+  docker_compose up -d --build app
+fi
 
 echo "Listo:"
 echo "  UI:  http://localhost:8000"
 echo "  LLM: http://${LLAMA_HEALTH_HOST}:${LLAMA_PORT}"
 echo "  Embeddings: http://127.0.0.1:${EMBEDDINGS_EFFECTIVE_PORT}"
+if [[ "${START_SEARXNG}" == "1" || "${START_SEARXNG}" == "true" ]]; then
+  echo "  SearXNG: http://127.0.0.1:8888"
+fi
 echo "  Logs llama-server: ${LOG_DIR}/llama-server.log"

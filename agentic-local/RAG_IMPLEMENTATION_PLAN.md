@@ -36,6 +36,7 @@ Validacion final:
 - Golden set: `hit@k=1.0`, `top_source_accuracy=1.0`, `citation_accuracy=1.0` y `answer_groundedness=1.0`.
 - Pruebas E2E con modelo real: Chat puro, RAG citado, rechazo sin evidencia y reranking protegido.
 - Pruebas reales de PDF digital, PDF escaneado, OCR cacheado y ausencia de worker OCR residente tras la ingesta.
+- Prueba web real: SearXNG devolvio 5 resultados sin consumir Tavily; una caida forzada activo el fallback Tavily y `web_fetch` extrajo contenido con Trafilatura.
 - Modelo `bge-small-en-v1.5-Q8_0.gguf` verificado con SHA-256 `cb23bbfa9bc2f2e2adf32fee567cc72bed2a4250bed09a42dc12bac81dc58bef`.
 
 Los comandos de operacion, variables y decisiones sobre Docling/GOT-OCR estan documentados en `README.md`.

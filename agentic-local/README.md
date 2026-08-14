@@ -20,6 +20,8 @@ Para RAG semantico, descarga y arranca el modelo de embeddings CPU antes de la a
 
 El worker OCR CPU se instala por separado con `../venv/bin/pip install -r backend/requirements-ocr.txt`. Para descargar tambien GOT-OCR2_0 como opcion avanzada: `DOWNLOAD_OCR_MODEL=1 ./download-rag-models.sh`.
 
+El arranque normal levanta tambien SearXNG y `./stop-host-gpu.sh` detiene ambos contenedores. Para una sesion sin el buscador local puede usarse `START_SEARXNG=0 ./start-host-gpu.sh`.
+
 El endpoint de embeddings usa `http://localhost:8091/v1` porque `8081` esta ocupado en este host. Puede cambiarse con `EMBEDDINGS_PORT` y `EMBEDDINGS_BASE_URL`.
 
 Si Docker en tu usuario pide permisos, ejecuta una vez `sudo -v` antes del script o lanza el script desde una terminal interactiva para que pueda pedir la contraseña.
@@ -105,7 +107,7 @@ La evaluacion genera respuestas RAG reales y calcula por separado retrieval, cit
 
 El modo Web usa SearXNG como proveedor principal y Tavily como fallback. Tavily solo se consulta si SearXNG falla, agota el timeout o entrega menos de `WEB_SEARCH_MIN_RESULTS` resultados utiles. Los resultados se normalizan y deduplican por URL; despues, las primeras paginas se descargan directamente y su contenido principal se extrae localmente. Cada salto de redireccion vuelve a validar el destino para bloquear protocolos no HTTP(S) y redes privadas, locales, loopback o link-local.
 
-Arranca el servicio opcional de SearXNG antes de usar Web:
+`./start-host-gpu.sh` arranca SearXNG automaticamente. Para levantar solamente ese servicio de forma manual:
 
 ```bash
 SEARXNG_SECRET="$(openssl rand -hex 32)" docker compose --profile web-search up -d searxng
