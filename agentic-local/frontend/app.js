@@ -8,6 +8,8 @@ const modeButton = document.querySelector("#mode-button");
 const modeMenu = document.querySelector("#mode-menu");
 const modeChips = document.querySelector("#mode-chips");
 const clearChatButton = document.querySelector("#clear-chat");
+const uploadInput = document.querySelector("#upload-input");
+const uploadStatus = document.querySelector("#upload-status");
 const MODE_KEY = "agentic-local-modes-v1";
 const HISTORY_KEY = "agentic-local-history-v1";
 const MAX_HISTORY_MESSAGES = 40;
@@ -104,6 +106,26 @@ modeMenu.addEventListener("change", (event) => {
 });
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".mode-picker")) modeMenu.hidden = true;
+});
+
+uploadInput.addEventListener("change", async () => {
+  const file = uploadInput.files?.[0];
+  if (!file) return;
+  uploadStatus.textContent = `Subiendo ${file.name}...`;
+  const body = new FormData();
+  body.append("file", file);
+  try {
+    const response = await fetch("/api/rag/convert", { method: "POST", body });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    const chunks = data.ingestion?.chunks ?? 0;
+    uploadStatus.textContent = `${file.name}: ${chunks} fragmentos indexados.`;
+    refreshStatus();
+  } catch (error) {
+    uploadStatus.textContent = `Error: ${error.message}`;
+  } finally {
+    uploadInput.value = "";
+  }
 });
 
 clearChatButton.addEventListener("click", () => {

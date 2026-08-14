@@ -1,76 +1,30 @@
-# Agentic Local Notes
+# Repository Guidelines
 
-## Project Scope
+## Project Structure & Module Organization
 
-- Treat `agentic-local/` as the primary project in this workspace.
-- Do not make changes in sibling directories such as `llama.cpp/`, `model/`, or `venv/` unless the user explicitly asks.
-- There is no git repository rooted at `agentic-local/` in the current workspace, so preserve unrelated local files and avoid assuming git history is available.
+`backend/` contains the Python 3.12 FastAPI application. `backend/main.py` defines the HTTP API and serves the static UI, while `backend/agent.py` implements the local model/tool loop. RAG indexing, retrieval, OCR, and evaluation live under `backend/rag/`; tool implementations live under `backend/tools/`. The framework-free frontend is in `frontend/` (`index.html`, `app.js`, and `styles.css`). Tests are in `tests/`, and runtime documents, indexes, and evaluation fixtures belong under `workspace/`. Treat sibling directories outside `agentic-local/` as supporting dependencies unless a task explicitly includes them.
 
-## Architecture
+## Build, Test, and Development Commands
 
-- `backend/` is a Python 3.12 FastAPI app.
-- `backend/main.py` exposes the HTTP API and serves the static frontend.
-- `backend/agent.py` contains the local agent loop. It calls an OpenAI-compatible `llama-server` chat completions endpoint and expects JSON output for either one tool call or a final answer.
-- `backend/tools/` contains the tool registry and filesystem tools.
-- `frontend/` is plain HTML, CSS, and JavaScript served from FastAPI under `/assets`; there is no frontend build step.
-- `workspace/` is the only filesystem area the in-app agent is allowed to read or write.
+- `./start-host-gpu.sh` starts the host Vulkan `llama-server` and the Dockerized app. Open `http://localhost:8000`.
+- `./stop-host-gpu.sh` stops the local stack.
+- `docker compose config` validates Compose configuration without starting services.
+- `../venv/bin/pytest -q` runs the complete pytest suite.
+- `python3 -m py_compile backend/*.py backend/tools/*.py backend/rag/*.py` performs a quick syntax check.
+- `../venv/bin/python -m backend.rag.cli reindex` rebuilds the local document index.
 
-## Runtime
+## Coding Style & Naming Conventions
 
-- Recommended startup:
+Use four-space indentation and standard PEP 8 naming in Python: `snake_case` for functions and modules, `PascalCase` for classes, and uppercase names for configuration constants. Add type annotations where they clarify public interfaces. Keep JavaScript framework-free and follow the existing `camelCase` style. Match the concise Spanish wording already used in the UI. No formatter or linter is currently enforced, so keep diffs focused and consistent with nearby code.
 
-```bash
-cd agentic-local
-./start-host-gpu.sh
-```
+## Testing Guidelines
 
-- Recommended shutdown:
+Pytest is configured through `pytest.ini`; test files belong in `tests/` and functions must start with `test_`. Add regression coverage for changes to API contracts, retrieval ranking, citations, OCR conversion, or model routing. Prefer deterministic clients, temporary paths, and monkeypatching over live model or network dependencies. Run the full suite before submitting changes; no numeric coverage threshold is currently defined.
 
-```bash
-cd agentic-local
-./stop-host-gpu.sh
-```
+## Commit & Pull Request Guidelines
 
-- UI runs at `http://localhost:8000`.
-- Host `llama-server` runs at `http://localhost:8080`.
-- The Docker app service talks to the host LLM through `LLM_BASE_URL`, defaulting to `http://host.docker.internal:8080/v1`.
-- The optional `container-llm` compose profile exists, but the README notes Docker was not seeing the GPU on this machine.
+Recent history mostly uses short imperative subjects, often Conventional Commit prefixes such as `feat:`. Prefer `feat: add upload validation` or `fix: preserve citation order`; keep each commit narrowly scoped. Pull requests should explain the motivation and behavior change, list validation commands, and link relevant issues. Include screenshots for frontend changes and call out configuration, model, VRAM, or migration impacts.
 
-## Configuration
+## Security & Configuration Tips
 
-- Main config lives in `backend/config.py`.
-- Important environment variables:
-  - `AGENT_WORKSPACE`
-  - `LLM_BASE_URL`
-  - `LLM_MODEL`
-  - `LLM_TIMEOUT`
-  - `MAX_AGENT_STEPS`
-  - `MAX_RESPONSE_TOKENS`
-  - `MAX_TOOL_OUTPUT_CHARS`
-  - `MAX_FILE_READ_CHARS`
-- `docker-compose.yml` sets the app defaults and mounts `./workspace` as `/workspace`.
-
-## Development Checks
-
-- For Python syntax checks, run:
-
-```bash
-python3 -m py_compile backend/*.py backend/tools/*.py
-```
-
-- For Docker configuration checks, run:
-
-```bash
-docker compose config
-```
-
-- Use `sudo docker compose ...` only when Docker requires elevated permissions on this machine.
-
-## Change Guidance
-
-- Keep backend changes compatible with FastAPI and the existing simple registry pattern.
-- When adding a tool, register it in `backend/tools/filesystem.py` or add a focused module and export/merge the registry through `backend/tools/__init__.py`.
-- Any new tool exposed to the LLM must also be reflected in the JSON schema enum in `backend/agent.py`.
-- Preserve the workspace boundary enforced by `_safe_path`; tools must not escape `WORKSPACE_ROOT`.
-- Keep frontend changes framework-free unless the user explicitly requests a frontend build system.
-- Prefer concise Spanish UI copy, matching the existing app language.
+Keep filesystem access confined to `workspace/`; preserve the path checks that enforce `WORKSPACE_ROOT`. Never commit model weights, generated indexes, logs, credentials, or machine-specific secrets. Configure endpoints and limits through environment variables documented in `README.md` and `backend/config.py`.

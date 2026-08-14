@@ -40,6 +40,8 @@ EMBEDDINGS_BASE_URL = os.getenv("EMBEDDINGS_BASE_URL", "http://host.docker.inter
 EMBEDDINGS_DIMENSIONS = int(os.getenv("EMBEDDINGS_DIMENSIONS", "384"))
 EMBEDDINGS_BATCH_SIZE = int(os.getenv("EMBEDDINGS_BATCH_SIZE", "16"))
 
+RAG_UPLOAD_MAX_BYTES = int(os.getenv("RAG_UPLOAD_MAX_BYTES", str(50 * 1024 * 1024)))
+
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "rapidocr")
 OCR_MODEL = os.getenv("OCR_MODEL", "RapidOCR/PP-OCRv4")
 OCR_MODEL_DIR = Path(os.getenv("OCR_MODEL_DIR", APP_ROOT.parent / "model" / "GOT-OCR2_0")).resolve()

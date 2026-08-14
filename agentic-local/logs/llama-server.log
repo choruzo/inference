@@ -158,3 +158,14 @@
 [36677] 8.49.941.177 I slot print_timing: id  0 | task 3458 |       total time =   39991.65 ms /  3648 tokens
 [36677] 8.49.941.177 I slot print_timing: id  0 | task 3458 |    graphs reused =       5636
 [36677] 8.49.941.342 I slot      release: id  0 | task 3458 | stop processing: n_tokens = 3647, truncated = 0
+23.33.102.128 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
+[36483] 23.33.001.193 I slot get_availabl: id  2 | task -1 | selected slot by LCP similarity, f_sim_best = 0.167 (> 0.100 thold), f_keep = 0.048
+[36483] 23.33.001.201 I slot launch_slot_: id  2 | task 8 | processing task, is_child = 0
+[36483] 23.33.001.205 I slot get_availabl: id  1 | task -1 | selected slot by LRU, t_last = -1
+[36483] 23.33.001.207 I slot launch_slot_: id  1 | task 9 | processing task, is_child = 0
+[36483] 23.33.010.036 I slot      release: id  1 | task 9 | stop processing: n_tokens = 12, truncated = 0
+[36483] 23.33.010.046 I slot      release: id  2 | task 8 | stop processing: n_tokens = 6, truncated = 0
+24.24.453.964 I srv  proxy_reques: proxying request to model bge-small-en-v1.5 on port 36483
+[36483] 24.24.352.975 I slot get_availabl: id  1 | task -1 | selected slot by LCP similarity, f_sim_best = 0.182 (> 0.100 thold), f_keep = 0.167
+[36483] 24.24.352.982 I slot launch_slot_: id  1 | task 11 | processing task, is_child = 0
+[36483] 24.24.359.518 I slot      release: id  1 | task 11 | stop processing: n_tokens = 11, truncated = 0

@@ -188,6 +188,23 @@ li,
   font-size: 12px;
 }
 
+.upload-button {
+  display: inline-block;
+  cursor: pointer;
+  padding: 6px 10px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: transparent;
+  color: #c7c0b5;
+  font-size: 12px;
+  text-align: center;
+}
+
+.upload-button:hover {
+  border-color: #e4bd7e;
+  color: #e4bd7e;
+}
+
 .citations {
   margin-top: 12px;
 }

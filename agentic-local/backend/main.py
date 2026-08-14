@@ -3,18 +3,23 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.agent import LocalAgent
-from backend.config import APP_ROOT, LLM_BASE_URL, WORKSPACE_ROOT
+from backend.config import APP_ROOT, LLM_BASE_URL, RAG_UPLOAD_MAX_BYTES, WORKSPACE_ROOT
 from backend.contracts import ChatRequest, ChatResponse
+from backend.rag.documents import convert_to_markdown
+from backend.rag.embeddings import index_embeddings
 from backend.rag.ingest import reindex_all
 from backend.rag.store import RagStore
 from backend.tools import registry
+
+
+RAG_UPLOAD_SUFFIXES = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 
 
 class ToolRequest(BaseModel):
@@ -75,6 +80,33 @@ async def rag_status() -> dict[str, object]:
 @app.post("/api/rag/reindex")
 async def rag_reindex() -> dict[str, int]:
     return reindex_all()
+
+
+@app.post("/api/rag/convert")
+async def rag_convert(file: UploadFile = File(...)) -> dict[str, object]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in RAG_UPLOAD_SUFFIXES:
+        raise HTTPException(status_code=400, detail=f"Tipo de archivo no soportado: {suffix or '(sin extension)'}")
+    safe_name = Path(file.filename or "").name
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Nombre de archivo invalido")
+    data = await file.read()
+    if len(data) > RAG_UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Archivo demasiado grande")
+    dest_dir = WORKSPACE_ROOT / "uploads"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / safe_name
+    dest.write_bytes(data)
+    try:
+        result = convert_to_markdown(dest)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
+    if "embedding_index" not in result:
+        try:
+            result["embedding_index"] = index_embeddings()
+        except Exception as exc:
+            result["embedding_index"] = {"skipped": f"{type(exc).__name__}: {exc}"}
+    return result
 
 
 @app.get("/api/source", response_class=PlainTextResponse)
