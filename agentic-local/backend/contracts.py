@@ -28,6 +28,7 @@ class Citation(BaseModel):
     end_line: int
     quote: str = ""
     source_type: Literal["local", "web"] = "local"
+    provider: str | None = None
 
 
 class RetrievalChunk(BaseModel):

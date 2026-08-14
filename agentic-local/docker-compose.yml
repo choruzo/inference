@@ -37,7 +37,17 @@ services:
       MAX_CHAT_HISTORY_MESSAGES: ${MAX_CHAT_HISTORY_MESSAGES:-40}
       RAG_ENABLED: ${RAG_ENABLED:-true}
       WEB_ENABLED: ${WEB_ENABLED:-true}
-      WEB_SEARCH_URL: ${WEB_SEARCH_URL:-https://html.duckduckgo.com/html/}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-searxng}
+      WEB_SEARCH_FALLBACK: ${WEB_SEARCH_FALLBACK:-tavily}
+      WEB_SEARCH_MIN_RESULTS: ${WEB_SEARCH_MIN_RESULTS:-3}
+      WEB_SEARCH_LIMIT: ${WEB_SEARCH_LIMIT:-5}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      WEB_TIMEOUT: ${WEB_TIMEOUT:-15}
+      WEB_MAX_BYTES: ${WEB_MAX_BYTES:-2000000}
+      WEB_MAX_REDIRECTS: ${WEB_MAX_REDIRECTS:-5}
+      WEB_FETCH_RESULTS: ${WEB_FETCH_RESULTS:-3}
+      WEB_FETCH_MAX_CHARS: ${WEB_FETCH_MAX_CHARS:-20000}
       RAG_DOCS_DIR: /workspace/docs
       RAG_INDEX_DIR: /workspace/.rag_index
       RAG_SOURCES_DIR: /workspace/.rag_sources
@@ -56,3 +66,21 @@ services:
       - ./workspace:/workspace
     ports:
       - "8000:8000"
+
+  searxng:
+    profiles:
+      - web-search
+    image: docker.io/searxng/searxng:latest
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8888/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me-before-exposing}
+      FORCE_OWNERSHIP: "false"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+    ports:
+      - "127.0.0.1:8888:8080"
+    restart: unless-stopped
+
+volumes:
+  searxng-cache:

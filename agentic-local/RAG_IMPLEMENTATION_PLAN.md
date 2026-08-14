@@ -12,9 +12,9 @@ Los modos deben poder activarse o desactivarse desde el cuadro de chat usando un
 
 ## Estado de Implementacion
 
-Actualizado el 3 de agosto de 2026.
+Actualizado el 14 de agosto de 2026.
 
-Las fases 0 a 9 estan implementadas y operativas. Las fases 10 a 12 permanecen planificadas y fuera del alcance de esta entrega.
+Las fases 0 a 10 estan implementadas y operativas. Las fases 11 y 12 permanecen planificadas.
 
 | Fase | Estado | Evidencia principal |
 | --- | --- | --- |
@@ -28,10 +28,11 @@ Las fases 0 a 9 estan implementadas y operativas. Las fases 10 a 12 permanecen p
 | 7. Reranking | Completada | JSON Schema estricto, cache versionada y guardrail de evidencia lexical/vectorial |
 | 8. Evaluacion | Completada | Golden set E2E de 3 casos, 21 tests y metricas reproducibles en `backend/rag/evaluate.py` |
 | 9. Documentos y OCR | Completada | PDF/DOCX a Markdown, RapidOCR offline, cache con bounding boxes y orquestacion secuencial |
+| 10. Web Search y Web Fetch | Completada | SearXNG primario, fallback Tavily, extraccion local, deduplicacion, trazas y proteccion SSRF en `backend/web.py` |
 
 Validacion final:
 
-- `pytest`: 21 tests superados.
+- `pytest`: 36 tests superados.
 - Golden set: `hit@k=1.0`, `top_source_accuracy=1.0`, `citation_accuracy=1.0` y `answer_groundedness=1.0`.
 - Pruebas E2E con modelo real: Chat puro, RAG citado, rechazo sin evidencia y reranking protegido.
 - Pruebas reales de PDF digital, PDF escaneado, OCR cacheado y ausencia de worker OCR residente tras la ingesta.

@@ -5,6 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import httpx
 import pytest
 
 import backend.rag.evaluate as rag_evaluation
@@ -23,7 +24,18 @@ from backend.rag.ingest import ingest_documents, reindex_all
 from backend.rag.search import hybrid_search, reciprocal_rank_fusion, vector_search
 from backend.rag.rerank import rerank
 from backend.rag.store import RagStore
-from backend.web import parse_search_results
+from backend.web import (
+    UnsafeUrlError,
+    canonicalize_url,
+    deduplicate_results,
+    normalize_search_results,
+    parse_search_results,
+    search_searxng,
+    search_tavily,
+    search_web,
+    validate_fetch_url,
+    web_fetch,
+)
 
 
 @pytest.fixture()
@@ -101,6 +113,155 @@ def test_duckduckgo_results_are_parsed_into_public_web_evidence():
     assert parse_search_results(document) == [
         {"url": "https://example.com/ai", "title": "AI Act", "snippet": "Resumen verificable del reglamento europeo."}
     ]
+
+
+def test_search_providers_share_schema_and_urls_are_deduplicated():
+    searxng = normalize_search_results(
+        [{"title": " Uno ", "url": "HTTPS://Example.com/doc/?utm_source=test", "content": " resultado ", "publishedDate": "2026-08-01"}],
+        "searxng",
+        5,
+    )
+    tavily = normalize_search_results(
+        [{"title": "Uno duplicado", "url": "https://example.com/doc#top", "content": "otro", "score": 0.8}],
+        "tavily",
+        5,
+    )
+    assert set(searxng[0]) == {"title", "url", "snippet", "published_at", "score", "provider"}
+    assert set(tavily[0]) == set(searxng[0])
+    assert canonicalize_url(searxng[0]["url"]) == canonicalize_url(tavily[0]["url"])
+    assert deduplicate_results(searxng + tavily, 5) == searxng
+
+
+def test_searxng_and_tavily_adapters_send_bounded_requests(monkeypatch: pytest.MonkeyPatch):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "search.local":
+            return httpx.Response(
+                200,
+                json={"results": [{"title": "SearX", "url": "https://example.com/s", "content": "resultado"}]},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "results": [{"title": "Tavily", "url": "https://example.com/t", "content": "resultado", "score": 0.7}],
+                "request_id": "req-1",
+                "usage": {"credits": 1},
+            },
+        )
+
+    monkeypatch.setattr("backend.web.SEARXNG_URL", "https://search.local")
+    monkeypatch.setattr("backend.web.TAVILY_URL", "https://api.tavily.local/search")
+    monkeypatch.setattr("backend.web.TAVILY_API_KEY", "test-token")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    searxng, _ = asyncio.run(search_searxng(client, "consulta", 4, 7))
+    tavily, metadata = asyncio.run(search_tavily(client, "consulta", 4, 7))
+    asyncio.run(client.aclose())
+    assert searxng[0]["provider"] == "searxng" and tavily[0]["provider"] == "tavily"
+    assert requests[0].url.params["format"] == "json" and requests[0].url.params["time_range"] == "month"
+    payload = json.loads(requests[1].content)
+    assert requests[1].headers["Authorization"] == "Bearer test-token"
+    assert payload["search_depth"] == "basic" and payload["max_results"] == 4 and not payload["include_answer"]
+    assert metadata["request_id"] == "req-1" and metadata["usage"] == {"credits": 1}
+
+
+def test_tavily_fallback_only_runs_when_primary_is_insufficient(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+
+    async def enough(provider, client, query, limit, recency_days):
+        calls.append(provider)
+        values = [
+            {"title": f"R{i}", "url": f"https://example.com/{i}", "snippet": "evidencia", "published_at": None, "score": 1.0, "provider": provider}
+            for i in range(3)
+        ]
+        return values, {"provider": provider}
+
+    monkeypatch.setattr("backend.web.WEB_SEARCH_PROVIDER", "searxng")
+    monkeypatch.setattr("backend.web.WEB_SEARCH_FALLBACK", "tavily")
+    monkeypatch.setattr("backend.web.WEB_SEARCH_MIN_RESULTS", 3)
+    monkeypatch.setattr("backend.web._provider_search", enough)
+    client = httpx.AsyncClient()
+    results = asyncio.run(search_web(client, "consulta", limit=5))
+    asyncio.run(client.aclose())
+    assert calls == ["searxng"]
+    assert results.trace["providers_used"] == ["searxng"]
+
+
+def test_tavily_fallback_runs_after_searxng_failure(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+
+    async def fallback(provider, client, query, limit, recency_days):
+        calls.append(provider)
+        if provider == "searxng":
+            raise httpx.ConnectError("offline")
+        return [
+            {"title": "Fallback", "url": "https://example.com/fallback", "snippet": "evidencia", "published_at": None, "score": 0.9, "provider": provider}
+        ], {"provider": provider, "usage": {"credits": 1}}
+
+    monkeypatch.setattr("backend.web.WEB_SEARCH_PROVIDER", "searxng")
+    monkeypatch.setattr("backend.web.WEB_SEARCH_FALLBACK", "tavily")
+    monkeypatch.setattr("backend.web._provider_search", fallback)
+    client = httpx.AsyncClient()
+    results = asyncio.run(search_web(client, "consulta", limit=5))
+    asyncio.run(client.aclose())
+    assert calls == ["searxng", "tavily"]
+    assert results[0]["provider"] == "tavily"
+    assert results.trace["fallback_reason"] == "primary_error"
+
+
+def test_tavily_fallback_runs_when_searxng_has_too_few_results(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+
+    async def insufficient(provider, client, query, limit, recency_days):
+        calls.append(provider)
+        suffix = "primary" if provider == "searxng" else "fallback"
+        return [
+            {"title": suffix, "url": f"https://example.com/{suffix}", "snippet": "evidencia", "published_at": None, "score": 0.8, "provider": provider}
+        ], {"provider": provider}
+
+    monkeypatch.setattr("backend.web.WEB_SEARCH_PROVIDER", "searxng")
+    monkeypatch.setattr("backend.web.WEB_SEARCH_FALLBACK", "tavily")
+    monkeypatch.setattr("backend.web.WEB_SEARCH_MIN_RESULTS", 3)
+    monkeypatch.setattr("backend.web._provider_search", insufficient)
+    client = httpx.AsyncClient()
+    results = asyncio.run(search_web(client, "consulta", limit=5))
+    asyncio.run(client.aclose())
+    assert calls == ["searxng", "tavily"]
+    assert [item["provider"] for item in results] == ["searxng", "tavily"]
+    assert results.trace["fallback_reason"] == "insufficient_results"
+
+
+def test_web_fetch_blocks_private_destinations_and_private_redirects():
+    for url in ("file:///etc/passwd", "http://localhost/admin", "http://127.0.0.1/", "http://169.254.169.254/latest"):
+        with pytest.raises(UnsafeUrlError):
+            asyncio.run(validate_fetch_url(url))
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "http://127.0.0.1/private"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(UnsafeUrlError):
+        asyncio.run(web_fetch(client, "http://93.184.216.34/start"))
+    asyncio.run(client.aclose())
+    assert calls == ["http://93.184.216.34/start"]
+
+
+def test_web_fetch_extracts_main_text_without_scripts():
+    document = b"""<html><head><title>Pagina</title><meta property="article:published_time" content="2026-08-01"></head>
+    <body><nav>Menu</nav><main><h1>Titulo</h1><p>Contenido verificable de la pagina.</p><script>secreto()</script></main></body></html>"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=document, headers={"Content-Type": "text/html; charset=utf-8"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(web_fetch(client, "https://93.184.216.34/article", max_chars=200))
+    asyncio.run(client.aclose())
+    assert result["title"] == "Pagina" and "Contenido verificable" in result["content"]
+    assert "secreto" not in result["content"] and result["published_at"] == "2026-08-01"
 
 
 def test_rag_falls_back_to_cited_web_results(monkeypatch: pytest.MonkeyPatch):

@@ -3,6 +3,8 @@ python-multipart==0.0.20
 uvicorn[standard]==0.35.0
 httpx==0.28.1
 pydantic==2.11.7
+beautifulsoup4==4.13.4
+trafilatura==2.0.0
 pypdf==5.9.0
 python-docx==1.2.0
 Pillow==11.3.0

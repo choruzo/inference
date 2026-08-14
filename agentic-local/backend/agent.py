@@ -16,7 +16,7 @@ from backend.rag.citations import build_citations, context_with_citations, valid
 from backend.rag.rerank import rerank
 from backend.rag.search import hybrid_search
 from backend.tools import registry
-from backend.web import build_web_citations, search_web, web_context
+from backend.web import WebProviderError, build_web_citations, fetch_web_results, search_web, web_context
 
 
 SYSTEM_PROMPT = """You are a local agent running in a constrained workspace.
@@ -579,21 +579,35 @@ class LocalAgent:
     ) -> dict[str, Any]:
         try:
             results = await search_web(self.client, search_query)
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, ValueError, WebProviderError) as exc:
             trace.append({"type": "web", "event": "search_error", "data": {"error": f"{type(exc).__name__}: {exc}"}})
             return self._response("No he podido consultar la web en este momento.", trace, "web_error")
+        search_trace = getattr(results, "trace", {})
         trace.append(
             {
                 "type": "web",
                 "event": "search",
                 "data": {
                     "query": search_query,
-                    "results": [{"title": item["title"], "url": item["url"]} for item in results],
+                    "provider_trace": search_trace,
+                    "results": [
+                        {
+                            "title": item["title"],
+                            "url": item["url"],
+                            "provider": item.get("provider"),
+                            "published_at": item.get("published_at"),
+                            "score": item.get("score"),
+                        }
+                        for item in results
+                    ],
                 },
             }
         )
         if not results:
             return self._response("No encuentro evidencia suficiente ni en la documentacion ni en la web.", trace, "no_evidence")
+        results, fetch_trace = await fetch_web_results(self.client, results)
+        if fetch_trace:
+            trace.append({"type": "web", "event": "fetch", "data": {"pages": fetch_trace}})
 
         prompt = (
             "Usa exclusivamente los RESULTADOS WEB para responder. Devuelve el JSON solicitado: paragraphs contiene "

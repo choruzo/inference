@@ -79,8 +79,11 @@ function addMessage(role, content, data = null) {
     link.href = isWeb ? citation.path : `/api/source?path=${encodeURIComponent(citation.path)}&line=${citation.start_line}`;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
+    const webMeta = [citation.provider, citation.section?.replace("Resultado web", "").replace(/^\s*·\s*/, "")]
+      .filter(Boolean)
+      .join(" · ");
     link.textContent = isWeb
-      ? `[${citation.id}] Web · ${citation.title || new URL(citation.path).hostname}`
+      ? `[${citation.id}] Web · ${citation.title || new URL(citation.path).hostname}${webMeta ? ` · ${webMeta}` : ""}`
       : `[${citation.id}] ${citation.path}:${citation.start_line}-${citation.end_line}`;
     citationsEl.appendChild(link);
   });

@@ -1,0 +1,20 @@
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "Agentic Local Search"
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json
+
+server:
+  # The container overrides this value with SEARXNG_SECRET.
+  secret_key: "overridden-by-SEARXNG_SECRET"
+  limiter: false
+  image_proxy: false
+
+valkey:
+  url: false

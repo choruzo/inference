@@ -101,6 +101,29 @@ LLM_BASE_URL=http://127.0.0.1:8080/v1 EMBEDDINGS_BASE_URL=http://127.0.0.1:8091/
 
 La evaluacion genera respuestas RAG reales y calcula por separado retrieval, citas emitidas y grounding de la respuesta. El golden set esta en `workspace/evals/rag_golden.jsonl` y la ultima traza queda en `workspace/.rag_cache/last_evaluation.json`.
 
+## Busqueda web
+
+El modo Web usa SearXNG como proveedor principal y Tavily como fallback. Tavily solo se consulta si SearXNG falla, agota el timeout o entrega menos de `WEB_SEARCH_MIN_RESULTS` resultados utiles. Los resultados se normalizan y deduplican por URL; despues, las primeras paginas se descargan directamente y su contenido principal se extrae localmente. Cada salto de redireccion vuelve a validar el destino para bloquear protocolos no HTTP(S) y redes privadas, locales, loopback o link-local.
+
+Arranca el servicio opcional de SearXNG antes de usar Web:
+
+```bash
+SEARXNG_SECRET="$(openssl rand -hex 32)" docker compose --profile web-search up -d searxng
+```
+
+La interfaz local de SearXNG queda en <http://localhost:8888>; la app lo consulta dentro de Docker en `http://searxng:8080`. El formato JSON esta habilitado en `searxng/settings.yml`.
+
+Para habilitar el fallback, copia `.env.example` a `.env` y rellena `TAVILY_API_KEY`. No pongas el token en Compose, en el codigo ni en Git. La busqueda Tavily usa profundidad `basic`, no solicita respuesta generada ni contenido completo y, segun su documentacion vigente en agosto de 2026, cuesta 1 credito por consulta; el plan gratuito ofrece 1.000 creditos mensuales. Consulta la [API de busqueda](https://docs.tavily.com/documentation/api-reference/endpoint/search) y la [cuota vigente](https://docs.tavily.com/documentation/api-credits) antes de desplegar.
+
+Variables disponibles:
+
+- `WEB_SEARCH_PROVIDER`, `WEB_SEARCH_FALLBACK`, `WEB_SEARCH_MIN_RESULTS`, `WEB_SEARCH_LIMIT`
+- `SEARXNG_URL`, `TAVILY_API_KEY`, `TAVILY_URL`
+- `WEB_TIMEOUT`, `WEB_MAX_BYTES`, `WEB_MAX_REDIRECTS`
+- `WEB_FETCH_RESULTS`, `WEB_FETCH_MAX_CHARS`, `WEB_RETRY_ATTEMPTS`, `WEB_RETRY_BACKOFF`, `WEB_USER_AGENT`
+
+Para usar solo un proveedor, deja `WEB_SEARCH_FALLBACK` vacio. `WEB_SEARCH_PROVIDER=tavily` selecciona Tavily como principal. Chat con Web desactivado no ejecuta ninguna peticion de busqueda ni descarga de paginas.
+
 ## Configuracion RAG
 
 - `RAG_ENABLED`, `RAG_DOCS_DIR`, `RAG_INDEX_DIR`, `RAG_SOURCES_DIR`, `RAG_CACHE_DIR`
