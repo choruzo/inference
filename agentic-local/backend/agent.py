@@ -4,6 +4,7 @@ import os
 
 import json
 import re
+import unicodedata
 from typing import Any
 
 import httpx
@@ -15,6 +16,7 @@ from backend.rag.citations import build_citations, context_with_citations, valid
 from backend.rag.rerank import rerank
 from backend.rag.search import hybrid_search
 from backend.tools import registry
+from backend.web import build_web_citations, search_web, web_context
 
 
 SYSTEM_PROMPT = """You are a local agent running in a constrained workspace.
@@ -97,6 +99,21 @@ RERANK_RESPONSE_FORMAT = {
             "type": "object",
             "properties": {"ranked_chunk_ids": {"type": "array", "items": {"type": "string"}}},
             "required": ["ranked_chunk_ids"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+EVIDENCE_SUFFICIENCY_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "evidence_sufficiency",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"sufficient": {"type": "boolean"}},
+            "required": ["sufficient"],
             "additionalProperties": False,
         },
     },
@@ -259,6 +276,54 @@ def _parse_rag_answer(raw: str, source_count: int) -> tuple[str, set[int]]:
     return "\n\n".join(rendered), referenced
 
 
+def _contextualize_rag_query(user_message: str, history: list[dict[str, str]] | None) -> str:
+    normalized = user_message.lower().lstrip("¿¡ ")
+    words = normalized.split()
+    followup_markers = (
+        "y ",
+        "pero ",
+        "entonces ",
+        "tambien ",
+        "ademas ",
+        "que ",
+        "cual ",
+        "cuales ",
+        "como ",
+        "por que ",
+    )
+    refers_back = any(marker in normalized for marker in ("eso", "esa", "ese", "lo anterior", "dicha", "dicho", "contempla"))
+    if len(words) > 24 or (not normalized.startswith(followup_markers) and not refers_back):
+        return user_message
+    previous_user = next(
+        (str(item["content"]) for item in reversed(history or []) if item.get("role") == "user" and item.get("content")),
+        "",
+    )
+    if not previous_user:
+        return user_message
+    return f"{previous_user}\nPregunta de seguimiento: {user_message}"
+
+
+def _evidence_query_anchors(query: str, chunks: list[dict[str, Any]]) -> set[str]:
+    stopwords = {
+        "ademas", "algo", "como", "con", "contempla", "cual", "cuales", "dame", "del", "desde", "dicha",
+        "dicho", "donde", "esta", "este", "existe", "explica", "incluye", "informacion", "las", "los", "mas",
+        "nivel", "novedades", "para", "pero", "por", "pregunta", "que", "quiero", "saber", "seguimiento", "sin",
+        "sobre", "tambien", "temas", "tiene", "una", "unas", "uno", "unos",
+    }
+
+    def terms(text: str) -> set[str]:
+        normalized = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
+        return {
+            value
+            for value in re.findall(r"[a-z0-9]+", normalized)
+            if value not in stopwords and not value.isdigit() and (len(value) >= 3 or value in {"ai", "ia", "ue"})
+        }
+
+    query_terms = terms(query)
+    evidence_terms = terms("\n".join(str(item.get("content", "")) for item in chunks))
+    return query_terms & evidence_terms
+
+
 class LocalAgent:
     def __init__(self, rag_store=None, embedding_client=None) -> None:
         self.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
@@ -273,6 +338,8 @@ class LocalAgent:
             modes = modes.effective()
             if modes.rag:
                 return await self._rag_chat(user_message, history, modes)
+            if modes.web:
+                return await self._web_chat(user_message, user_message, history, modes, [])
             if not modes.chat:
                 return self._response("Activa Chat o RAG para responder.", [], "no_active_mode")
             return await self._plain_chat(user_message, history, modes)
@@ -400,9 +467,15 @@ class LocalAgent:
         return self._response(answer, trace, "final", reasoning=reasoning if modes.reasoning_panel else None)
 
     async def _rag_chat(self, user_message: str, history: list[dict[str, str]] | None, modes: ChatModes) -> dict[str, Any]:
-        candidates, search_trace = hybrid_search(user_message, store=self.rag_store, client=self.embedding_client, top_k=max(RAG_RERANK_TOP_K * 2, 8))
+        search_query = _contextualize_rag_query(user_message, history)
+        candidates, search_trace = hybrid_search(search_query, store=self.rag_store, client=self.embedding_client, top_k=max(RAG_RERANK_TOP_K * 2, 8))
+        search_trace["original_query"] = user_message
+        search_trace["contextualized_query"] = search_query
         trace: list[dict[str, Any]] = [{"type": "rag", "event": "retrieval", "data": search_trace}]
         if not candidates:
+            if modes.web:
+                trace.append({"type": "web", "event": "fallback", "data": {"reason": "local_no_evidence"}})
+                return await self._web_chat(user_message, search_query, history, modes, trace)
             return self._response("No lo encuentro en la documentacion indexada.", trace, "no_evidence", retrieval=RetrievalResult(query=user_message).model_dump())
 
         async def rank_completion(prompt: str) -> str:
@@ -416,15 +489,44 @@ class LocalAgent:
         ranked, rank_trace = await rerank(user_message, candidates, rank_completion, store=self.rag_store, top_k=RAG_RERANK_TOP_K)
         trace.append({"type": "rerank", "event": "ranking", "data": rank_trace})
         context = context_with_citations(ranked)
+        if modes.web:
+            anchors = _evidence_query_anchors(search_query, ranked)
+            assessment_raw = ""
+            evidence_sufficient = False
+            if anchors:
+                assessment_prompt = (
+                    "Decide si las fuentes contienen informacion que responde directamente a la pregunta. "
+                    "Compartir palabras sueltas o el tema general no es suficiente. Devuelve solo el JSON solicitado.\n\n"
+                    f"Pregunta: {user_message}\n\n{context}"
+                )
+                try:
+                    assessment_raw = await self._complete_text(
+                        [{"role": "system", "content": "Evalua estrictamente la suficiencia de evidencia documental."}, {"role": "user", "content": assessment_prompt}],
+                        max_tokens=64,
+                        response_format=EVIDENCE_SUFFICIENCY_RESPONSE_FORMAT,
+                    )
+                    assessment = _extract_json(assessment_raw) or {}
+                    evidence_sufficient = assessment.get("sufficient") is True
+                except (httpx.HTTPError, ValueError):
+                    evidence_sufficient = False
+            trace.append(
+                {
+                    "type": "rag",
+                    "event": "evidence_assessment",
+                    "data": {"sufficient": evidence_sufficient, "query_anchors": sorted(anchors), "model": assessment_raw},
+                }
+            )
+            if not evidence_sufficient:
+                trace.append({"type": "web", "event": "fallback", "data": {"reason": "local_evidence_insufficient"}})
+                return await self._web_chat(user_message, search_query, history, modes, trace)
         prompt = (
             "Usa exclusivamente las FUENTES para responder. Devuelve el JSON solicitado: paragraphs contiene objetos "
             "con un texto factual y los source_ids que lo respaldan. En text responde directamente a la pregunta, "
             "resume las medidas concretas y no menciones las fuentes ni el proceso. No escribas citas dentro de text. "
             "Si las fuentes no permiten responder, devuelve paragraphs vacio.\n\n"
-            f"Pregunta: {user_message}\n\n{context}"
+            f"Pregunta contextualizada: {search_query}\n\n{context}"
         )
         messages = [{"role": "system", "content": "Eres un asistente RAG riguroso. Redacta respuestas breves en el idioma de la pregunta y no inventes datos."}]
-        messages.extend(item for item in (history or [])[-MAX_CHAT_HISTORY_MESSAGES:] if item.get("role") in {"user", "assistant"} and item.get("content"))
         messages.append({"role": "user", "content": prompt})
         raw_outputs: list[str] = []
         try:
@@ -439,7 +541,7 @@ class LocalAgent:
                 retry_prompt = (
                     "Devuelve un parrafo factual breve en el JSON solicitado, usando solo la fuente. "
                     "Pon 1 en source_ids y no incluyas razonamiento. Si no responde la pregunta, devuelve paragraphs vacio.\n\n"
-                    f"Pregunta: {user_message}\n\n{context_with_citations(ranked[:1])}"
+                    f"Pregunta contextualizada: {search_query}\n\n{context_with_citations(ranked[:1])}"
                 )
                 raw = await self._complete_text(
                     [{"role": "system", "content": "Extrae una respuesta breve de la fuente y devuelve solo JSON."}, {"role": "user", "content": retry_prompt}],
@@ -455,6 +557,9 @@ class LocalAgent:
         if modes.reasoning_panel:
             trace.append({"type": "model", "event": "rag_completion", "data": {"attempts": raw_outputs}})
         if not answer:
+            if modes.web:
+                trace.append({"type": "web", "event": "fallback", "data": {"reason": "local_generation_insufficient"}})
+                return await self._web_chat(user_message, search_query, history, modes, trace)
             return self._response("El modelo no produjo una respuesta RAG completa.", trace, "generation_incomplete")
         citations = build_citations(ranked)
         citations = [citation for citation in citations if citation.id in referenced]
@@ -463,6 +568,65 @@ class LocalAgent:
         retrieval_chunks = [RetrievalChunk(chunk_id=str(item["id"]), path=str(item["path"]), title=str(item.get("title", "")), section=str(item.get("section", "")), start_line=int(item["start_line"]), end_line=int(item["end_line"]), content=str(item["content"]), score=float(item["score"]), reasons=list(item.get("reasons", []))) for item in ranked]
         retrieval = RetrievalResult(query=user_message, chunks=retrieval_chunks, reranked=[str(item["id"]) for item in ranked]).model_dump()
         return self._response(answer, trace if modes.reasoning_panel else [], "final", citations=[item.model_dump() for item in citations], retrieval=retrieval)
+
+    async def _web_chat(
+        self,
+        user_message: str,
+        search_query: str,
+        history: list[dict[str, str]] | None,
+        modes: ChatModes,
+        trace: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            results = await search_web(self.client, search_query)
+        except (httpx.HTTPError, ValueError) as exc:
+            trace.append({"type": "web", "event": "search_error", "data": {"error": f"{type(exc).__name__}: {exc}"}})
+            return self._response("No he podido consultar la web en este momento.", trace, "web_error")
+        trace.append(
+            {
+                "type": "web",
+                "event": "search",
+                "data": {
+                    "query": search_query,
+                    "results": [{"title": item["title"], "url": item["url"]} for item in results],
+                },
+            }
+        )
+        if not results:
+            return self._response("No encuentro evidencia suficiente ni en la documentacion ni en la web.", trace, "no_evidence")
+
+        prompt = (
+            "Usa exclusivamente los RESULTADOS WEB para responder. Devuelve el JSON solicitado: paragraphs contiene "
+            "objetos con texto factual y los source_ids que lo respaldan. Responde directamente, no menciones el proceso "
+            "y no incluyas citas dentro de text. Si los extractos no bastan, devuelve paragraphs vacio.\n\n"
+            f"Pregunta contextualizada: {search_query}\n\n{web_context(results)}"
+        )
+        messages = [{"role": "system", "content": "Eres un asistente de busqueda web riguroso. No inventes datos que no aparezcan en los extractos."}]
+        messages.append({"role": "user", "content": prompt})
+        try:
+            raw = await self._complete_text(
+                messages,
+                max_tokens=MAX_STRUCTURED_TOKENS,
+                response_format=_rag_answer_response_format(len(results)),
+            )
+        except httpx.TimeoutException:
+            return self._response("El modelo local ha agotado el tiempo de respuesta.", trace, "llm_timeout")
+        except httpx.HTTPError as exc:
+            return self._response(f"Error llamando al servidor LLM: {type(exc).__name__}: {exc}", trace, "llm_error")
+        answer, referenced = _parse_rag_answer(raw, len(results))
+        if modes.reasoning_panel:
+            trace.append({"type": "model", "event": "web_completion", "data": {"attempts": [raw]}})
+        if not answer:
+            return self._response("No encuentro evidencia suficiente ni en la documentacion ni en la web.", trace, "no_evidence")
+        citations = [citation for citation in build_web_citations(results) if citation.id in referenced]
+        if not citations or not _paragraphs_are_cited(answer):
+            return self._response("El modelo produjo una respuesta web sin respaldo valido.", trace, "invalid_citations")
+        return self._response(
+            answer,
+            trace if modes.reasoning_panel else [],
+            "final",
+            citations=[item.model_dump() for item in citations],
+        )
 
     async def _complete(self, messages: list[dict[str, str]], force_tool: bool = False) -> str:
         response = await self.client.post(

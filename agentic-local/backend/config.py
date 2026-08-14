@@ -20,7 +20,7 @@ MAX_FILE_READ_CHARS = int(os.getenv("MAX_FILE_READ_CHARS", "20000"))
 # RAG capabilities are opt-in at request time. These flags allow operators to
 # disable a capability globally without changing the API contract.
 RAG_ENABLED = os.getenv("RAG_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-WEB_ENABLED = os.getenv("WEB_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+WEB_ENABLED = os.getenv("WEB_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 OCR_ENABLED = os.getenv("OCR_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 RAG_DOCS_DIR = Path(os.getenv("RAG_DOCS_DIR", WORKSPACE_ROOT / "docs")).resolve()
 RAG_INDEX_DIR = Path(os.getenv("RAG_INDEX_DIR", WORKSPACE_ROOT / ".rag_index")).resolve()

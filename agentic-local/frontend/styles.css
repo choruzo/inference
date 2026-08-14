@@ -114,6 +114,27 @@ li,
   line-height: 1.5;
 }
 
+.message.loading {
+  border-color: #4e675f;
+  color: #d9e7e1;
+}
+
+.message.loading .content {
+  animation: waiting-pulse 1.4s ease-in-out infinite;
+  font-style: italic;
+}
+
+@keyframes waiting-pulse {
+  0%,
+  100% {
+    opacity: 0.62;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .composer {
   border-top: 1px solid #333;
   padding: 16px;

@@ -36,6 +36,8 @@ services:
       RESPONSE_TIMEOUT: ${RESPONSE_TIMEOUT:-0}
       MAX_CHAT_HISTORY_MESSAGES: ${MAX_CHAT_HISTORY_MESSAGES:-40}
       RAG_ENABLED: ${RAG_ENABLED:-true}
+      WEB_ENABLED: ${WEB_ENABLED:-true}
+      WEB_SEARCH_URL: ${WEB_SEARCH_URL:-https://html.duckduckgo.com/html/}
       RAG_DOCS_DIR: /workspace/docs
       RAG_INDEX_DIR: /workspace/.rag_index
       RAG_SOURCES_DIR: /workspace/.rag_sources

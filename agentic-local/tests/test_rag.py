@@ -12,7 +12,7 @@ from docx import Document
 from pypdf import PdfWriter
 from pydantic import ValidationError
 
-from backend.agent import LocalAgent, _paragraphs_are_cited, _parse_rag_answer, _strip_thinking, _thinking
+from backend.agent import LocalAgent, _contextualize_rag_query, _evidence_query_anchors, _paragraphs_are_cited, _parse_rag_answer, _strip_thinking, _thinking
 from backend.contracts import ChatRequest
 from backend.modes import ChatModes
 from backend.rag.chunking import chunk_text
@@ -23,6 +23,7 @@ from backend.rag.ingest import ingest_documents, reindex_all
 from backend.rag.search import hybrid_search, reciprocal_rank_fusion, vector_search
 from backend.rag.rerank import rerank
 from backend.rag.store import RagStore
+from backend.web import parse_search_results
 
 
 @pytest.fixture()
@@ -72,6 +73,82 @@ def test_structured_rag_answer_requires_text_and_valid_source_ids():
     assert answer == "La Union establece normas armonizadas. [1][2]"
     assert referenced == {1, 2}
     assert _parse_rag_answer('{"paragraphs": []}', 3) == ("", set())
+
+
+def test_rag_followup_uses_previous_user_question_as_search_context():
+    history = [
+        {"role": "user", "content": "¿Qué regula la UE sobre inteligencia artificial?"},
+        {"role": "assistant", "content": "Existe un reglamento europeo [1]."},
+    ]
+    query = _contextualize_rag_query("¿Y qué sanciones contempla?", history)
+    assert "Qué regula la UE" in query and "sanciones" in query
+    assert _contextualize_rag_query("Explica la fotosintesis con detalle", history) == "Explica la fotosintesis con detalle"
+
+
+def test_evidence_requires_a_distinctive_query_anchor():
+    chunks = [{"content": "El Reglamento europeo establece una politica armonizada para sistemas de IA."}]
+    assert _evidence_query_anchors("Que politica existe en la UE sobre IA?", chunks) == {"politica", "ia"}
+    assert not _evidence_query_anchors("Que novedades incluye Python 3.14?", chunks)
+
+
+def test_duckduckgo_results_are_parsed_into_public_web_evidence():
+    document = """
+    <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fai">AI Act</a>
+    <a class="result__snippet">Resumen verificable del reglamento europeo.</a>
+    <a class="result__a" href="http://127.0.0.1/private">Privado</a>
+    <a class="result__snippet">No debe exponerse.</a>
+    """
+    assert parse_search_results(document) == [
+        {"url": "https://example.com/ai", "title": "AI Act", "snippet": "Resumen verificable del reglamento europeo."}
+    ]
+
+
+def test_rag_falls_back_to_cited_web_results(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("backend.agent.hybrid_search", lambda *args, **kwargs: ([], {"selected": []}))
+
+    async def fake_search(client, query):
+        return [{"url": "https://example.com/ai", "title": "AI Act", "snippet": "La UE aplica normas comunes a la IA."}]
+
+    async def fake_complete(messages, **kwargs):
+        return json.dumps({"paragraphs": [{"text": "La UE aplica normas comunes a la IA.", "source_ids": [1]}]})
+
+    monkeypatch.setattr("backend.agent.search_web", fake_search)
+    agent = LocalAgent()
+    monkeypatch.setattr(agent, "_complete_text", fake_complete)
+    result = asyncio.run(agent.chat("politica europea de IA", [], ChatModes(chat=True, rag=True, web=True)))
+    asyncio.run(agent.close())
+    assert result["stopped"] == "final" and result["citations"][0]["source_type"] == "web"
+    assert result["citations"][0]["path"] == "https://example.com/ai"
+
+
+def test_rag_uses_web_when_local_chunks_do_not_answer(monkeypatch: pytest.MonkeyPatch):
+    irrelevant = {
+        "id": "local-1",
+        "path": "docs/ia.md",
+        "title": "IA",
+        "section": "General",
+        "start_line": 1,
+        "end_line": 2,
+        "content": "Normas europeas sobre inteligencia artificial.",
+        "score": 0.1,
+        "reasons": ["keyword"],
+    }
+    monkeypatch.setattr("backend.agent.hybrid_search", lambda *args, **kwargs: ([irrelevant], {"selected": ["local-1"]}))
+
+    async def fake_search(client, query):
+        return [{"url": "https://example.com/python", "title": "Python 3.14", "snippet": "Python 3.14 incorpora nuevas funciones."}]
+
+    responses = iter([json.dumps({"paragraphs": [{"text": "Python 3.14 incorpora nuevas funciones.", "source_ids": [1]}]})])
+
+    async def fake_complete(messages, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr("backend.agent.search_web", fake_search)
+    agent = LocalAgent()
+    monkeypatch.setattr(agent, "_complete_text", fake_complete)
+    result = asyncio.run(agent.chat("Novedades de Python 3.14", [], ChatModes(chat=True, rag=True, web=True)))
+    asyncio.run(agent.close())
+    assert result["stopped"] == "final" and result["citations"][0]["source_type"] == "web"
 
 
 def test_chunking_preserves_sections_symbols_and_lines(tmp_path: Path):
@@ -283,6 +360,7 @@ def test_frontend_persists_modes_and_renders_trace():
     assert "localStorage.setItem" in script and "modes" in script
     assert "HISTORY_KEY" in script and "saveHistory" in script and "localStorage.removeItem(HISTORY_KEY)" in script
     assert "history.slice(0, -1)" in script and "MAX_HISTORY_MESSAGES = 40" in script
+    assert "LOADING_PHRASES" in script and "setInterval" in script and 'citation.source_type === "web"' in script
     assert "copy-trace" in html and 'id="mode-button"' in html and 'id="clear-chat"' in html
 
 

@@ -14,6 +14,13 @@ const MODE_KEY = "agentic-local-modes-v1";
 const HISTORY_KEY = "agentic-local-history-v1";
 const MAX_HISTORY_MESSAGES = 40;
 const defaults = { chat: true, rag: false, web: false, reasoning_panel: true };
+const LOADING_PHRASES = [
+  "🔎 Rebuscando entre los pergaminos...",
+  "🧭 Interrogando a los embeddings...",
+  "🧩 Ordenando fragmentos sospechosamente relevantes...",
+  "🤖 Convenciendo al modelo para que vaya al grano...",
+  "📚 Poniendo las citas en fila...",
+];
 
 let history = loadHistory();
 let modes = loadModes();
@@ -68,10 +75,13 @@ function addMessage(role, content, data = null) {
   (data?.citations || []).forEach((citation) => {
     const link = document.createElement("a");
     link.className = "citation";
-    link.href = `/api/source?path=${encodeURIComponent(citation.path)}&line=${citation.start_line}`;
+    const isWeb = citation.source_type === "web";
+    link.href = isWeb ? citation.path : `/api/source?path=${encodeURIComponent(citation.path)}&line=${citation.start_line}`;
     link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = `[${citation.id}] ${citation.path}:${citation.start_line}-${citation.end_line}`;
+    link.rel = "noopener noreferrer";
+    link.textContent = isWeb
+      ? `[${citation.id}] Web · ${citation.title || new URL(citation.path).hostname}`
+      : `[${citation.id}] ${citation.path}:${citation.start_line}-${citation.end_line}`;
     citationsEl.appendChild(link);
   });
   const details = node.querySelector(".trace-panel");
@@ -83,6 +93,23 @@ function addMessage(role, content, data = null) {
   }
   messagesEl.appendChild(node);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  return article;
+}
+
+function startLoadingMessage() {
+  let index = 0;
+  const article = addMessage("assistant", LOADING_PHRASES[index]);
+  article.classList.add("loading");
+  article.setAttribute("aria-live", "polite");
+  const content = article.querySelector(".content");
+  const timer = window.setInterval(() => {
+    index = (index + 1) % LOADING_PHRASES.length;
+    content.textContent = LOADING_PHRASES[index];
+  }, 1800);
+  return () => {
+    window.clearInterval(timer);
+    article.remove();
+  };
 }
 
 async function refreshStatus() {
@@ -145,6 +172,7 @@ form.addEventListener("submit", async (event) => {
   saveHistory();
   promptInput.value = "";
   sendButton.disabled = true;
+  const stopLoading = startLoadingMessage();
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -153,10 +181,12 @@ form.addEventListener("submit", async (event) => {
     });
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json();
+    stopLoading();
     addMessage("assistant", data.answer, data);
     history.push({ role: "assistant", content: data.answer });
     saveHistory();
   } catch (error) {
+    stopLoading();
     addMessage("assistant", `Error: ${error.message}`);
   } finally {
     sendButton.disabled = false;
